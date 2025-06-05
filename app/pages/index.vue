@@ -1,32 +1,9 @@
 <script setup lang="ts">
-definePageMeta({
-  layout: 'home',
-})
-
-const online = useOnline()
 </script>
 
 <template>
   <div>
-    <Logos mb-6 />
-    <ClientOnly>
-      <Suspense>
-        <PageView v-if="online" />
-        <div v-else text-gray:80>
-          You're offline
-        </div>
-        <template #fallback>
-          <div op50 italic>
-            <span animate-pulse>Loading...</span>
-          </div>
-        </template>
-      </Suspense>
-      <template #fallback>
-        <div op50>
-          <span animate-pulse>...</span>
-        </div>
-      </template>
-    </ClientOnly>
-    <InputEntry />
+    <!-- 理论上用户不会直接看到这个页面太久，因为中间件会重定向 -->
+    <p>欢迎来到 ShareDrop!</p>
   </div>
 </template>
