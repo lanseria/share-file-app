@@ -1,10 +1,8 @@
-// signaling-server/server.js
-import { WebSocketServer, WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
+// signaling-server/server.js
+import { WebSocket, WebSocketServer } from 'ws'
 
-const PORT = process.env.PORT || 8080 // 信令服务器端口
-
-// 使用 WebSocketServer 创建一个 WebSocket 服务器实例
+const PORT = process.env.PORT || 8080
 const wss = new WebSocketServer({ port: PORT })
 
 // 用于存储房间和客户端连接信息
@@ -16,22 +14,63 @@ const wss = new WebSocketServer({ port: PORT })
 // }
 // WebSocketClientWrapper = { ws: WebSocket, id: string, roomId: string | null }
 const rooms = new Map()
-const clients = new Map() // 用于通过 ws 对象快速查找 clientWrapper
+const clients = new Map()
 
+// eslint-disable-next-line no-console
 console.log(`Signaling server started on ws://localhost:${PORT}`)
+
+// 预设的头像和名称，用于随机分配
+const PRESET_AVATARS = [
+  'i-twemoji-grinning-face-with-big-eyes',
+  'i-twemoji-beaming-face-with-smiling-eyes',
+  'i-twemoji-face-with-tears-of-joy',
+  'i-twemoji-rolling-on-the-floor-laughing',
+  'i-twemoji-smiling-face-with-halo',
+  'i-twemoji-winking-face',
+  'i-twemoji-star-struck',
+  'i-twemoji-face-blowing-a-kiss',
+  'i-twemoji-upside-down-face',
+  'i-twemoji-zany-face',
+  'i-twemoji-shushing-face',
+  'i-twemoji-thinking-face',
+  'i-twemoji-face-with-monocle',
+  'i-twemoji-nerd-face',
+  'i-twemoji-smiling-face-with-sunglasses',
+  'i-twemoji-cowboy-hat-face',
+  'i-twemoji-clown-face',
+  'i-twemoji-ghost',
+  'i-twemoji-alien',
+  'i-twemoji-robot',
+]
+const PRESET_ADJECTIVES = ['开心', '聪明', '勇敢', '幸运', '快速', '安静', '友好', '好奇', '勤奋', '有趣']
+const PRESET_NOUNS = ['猫咪', '小狗', '老虎', '狮子', '大象', '猴子', '熊猫', '兔子', '松鼠', '海豚']
+
+function getRandomElement(arr) {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+
+function generateRandomUserData() {
+  return {
+    name: `${getRandomElement(PRESET_ADJECTIVES)}的${getRandomElement(PRESET_NOUNS)}`,
+    avatar: getRandomElement(PRESET_AVATARS),
+  }
+}
 
 wss.on('connection', (ws) => {
   // 为每个连接生成一个唯一的客户端 ID
   const clientId = uuidv4()
-  const clientWrapper = { ws, id: clientId, roomId: null }
+  // 为新连接的客户端生成随机用户数据
+  const userData = generateRandomUserData()
+  const clientWrapper = { ws, id: clientId, roomId: null, ...userData } // 将 userData 合并
   clients.set(ws, clientWrapper)
 
-  console.log(`Client ${clientId} connected. Total clients: ${clients.size}`)
+  // eslint-disable-next-line no-console
+  console.log(`Client ${clientId} (${clientWrapper.name}) connected. Total clients: ${clients.size}`)
 
   ws.on('message', (messageText) => {
     let message
     try {
-      message = JSON.parse(messageText.toString()) // 确保将 Buffer 转为字符串
+      message = JSON.parse(messageText.toString())
     }
     catch (e) {
       console.error(`Failed to parse message from ${clientId}:`, messageText.toString())
@@ -40,9 +79,11 @@ wss.on('connection', (ws) => {
     }
 
     const currentClient = clients.get(ws)
-    if (!currentClient) return // 应该不会发生
+    if (!currentClient)
+      return
 
-    console.log(`Received message from ${currentClient.id} in room ${currentClient.roomId || 'N/A'}:`, message)
+    // eslint-disable-next-line no-console
+    console.log(`Received message from ${currentClient.id} (${currentClient.name}) in room ${currentClient.roomId || 'N/A'}:`, message)
 
     switch (message.type) {
       case 'join_room': {
@@ -54,10 +95,19 @@ wss.on('connection', (ws) => {
 
         // 如果客户端已在其他房间，先离开
         if (currentClient.roomId && rooms.has(currentClient.roomId)) {
-          rooms.get(currentClient.roomId)?.delete(currentClient)
-          if (rooms.get(currentClient.roomId)?.size === 0) {
+          const oldRoom = rooms.get(currentClient.roomId)
+          oldRoom?.delete(currentClient)
+          if (oldRoom?.size === 0) {
             rooms.delete(currentClient.roomId)
+            // eslint-disable-next-line no-console
             console.log(`Room ${currentClient.roomId} is now empty and removed.`)
+          }
+          else {
+            // 通知旧房间其他用户此人离开
+            broadcastToRoom(currentClient.roomId, {
+              type: 'user_left',
+              payload: { userId: currentClient.id },
+            })
           }
         }
 
@@ -65,23 +115,48 @@ wss.on('connection', (ws) => {
         if (!rooms.has(roomId)) {
           rooms.set(roomId, new Set())
         }
-        rooms.get(roomId)?.add(currentClient)
+        const room = rooms.get(roomId)
+        if (!room)
+          return // Should not happen
 
-        console.log(`Client ${currentClient.id} joined room ${roomId}. Room size: ${rooms.get(roomId)?.size}`)
-        ws.send(JSON.stringify({ type: 'room_joined', payload: { roomId, clientId: currentClient.id } }))
+        // 1. 将房间内已存在的用户列表发送给新加入的用户
+        const existingUsersInRoom = Array.from(room).map(client => ({
+          id: client.id,
+          name: client.name,
+          avatar: client.avatar,
+        }))
+        ws.send(JSON.stringify({
+          type: 'existing_users',
+          payload: { users: existingUsersInRoom },
+        }))
 
-        // 通知房间内其他用户有新人加入 (可选，后续会用到)
+        // 2. 将新用户添加到房间
+        room.add(currentClient)
+
+        // eslint-disable-next-line no-console
+        console.log(`Client ${currentClient.id} (${currentClient.name}) joined room ${roomId}. Room size: ${room.size}`)
+        ws.send(JSON.stringify({
+          type: 'room_joined',
+          payload: {
+            roomId,
+            clientId: currentClient.id,
+            name: currentClient.name,
+            avatar: currentClient.avatar,
+          },
+        }))
+
+        // 3. 通知房间内其他用户有新人加入
         broadcastToRoom(roomId, {
           type: 'user_joined',
-          payload: { userId: currentClient.id, /* 更多用户信息 */ },
+          payload: {
+            userId: currentClient.id,
+            name: currentClient.name,
+            avatar: currentClient.avatar,
+          },
         }, currentClient.id) // 不发给自己
         break
       }
 
-      // 简单的消息转发逻辑 (后续会扩展为 SDP, ICE Candidate 等)
-      // 期望消息格式: { type: "message_to_room", payload: { roomId: "...", data: "..." } }
-      // 或者 { type: "direct_message", payload: { targetId: "...", data: "..." } }
-      // 目前先做一个简单的房间内广播
       case 'broadcast_message': {
         if (!currentClient.roomId) {
           ws.send(JSON.stringify({ type: 'error', payload: 'You are not in a room to broadcast.' }))
@@ -92,11 +167,12 @@ wss.on('connection', (ws) => {
           return
         }
 
+        // eslint-disable-next-line no-console
         console.log(`Broadcasting message from ${currentClient.id} in room ${currentClient.roomId}`)
         broadcastToRoom(currentClient.roomId, {
           type: 'room_message',
-          payload: { senderId: currentClient.id, data: message.payload.data },
-        }, currentClient.id) // 不发给自己
+          payload: { senderId: currentClient.id, senderName: currentClient.name, data: message.payload.data },
+        }, currentClient.id)
         break
       }
 
@@ -108,6 +184,7 @@ wss.on('connection', (ws) => {
       //   break;
 
       default:
+        // eslint-disable-next-line no-console
         console.log(`Unknown message type from ${currentClient.id}: ${message.type}`)
         ws.send(JSON.stringify({ type: 'error', payload: `Unknown message type: ${message.type}` }))
     }
@@ -115,20 +192,25 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const closingClient = clients.get(ws)
-    if (!closingClient) return
+    if (!closingClient)
+      return
 
     clients.delete(ws)
-    console.log(`Client ${closingClient.id} disconnected. Total clients: ${clients.size}`)
+    // eslint-disable-next-line no-console
+    console.log(`Client ${closingClient.id} (${closingClient.name}) disconnected. Total clients: ${clients.size}`)
 
     if (closingClient.roomId && rooms.has(closingClient.roomId)) {
       const room = rooms.get(closingClient.roomId)
       room?.delete(closingClient)
+      // eslint-disable-next-line no-console
       console.log(`Client ${closingClient.id} removed from room ${closingClient.roomId}. Room size: ${room?.size}`)
 
       if (room?.size === 0) {
         rooms.delete(closingClient.roomId)
+        // eslint-disable-next-line no-console
         console.log(`Room ${closingClient.roomId} is now empty and removed.`)
-      } else {
+      }
+      else {
         // 通知房间内其他用户有人离开 (可选，后续会用到)
         broadcastToRoom(closingClient.roomId, {
           type: 'user_left',
@@ -154,7 +236,8 @@ function broadcastToRoom(roomId, message, excludeClientId = null) {
       if (client.id !== excludeClientId && client.ws.readyState === WebSocket.OPEN) {
         try {
           client.ws.send(messageString)
-        } catch (e) {
+        }
+        catch (e) {
           console.error(`Failed to send message to client ${client.id} in room ${roomId}:`, e)
           // 可以在这里处理发送失败的客户端，比如将其从房间移除
         }

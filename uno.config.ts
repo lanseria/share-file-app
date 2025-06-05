@@ -20,6 +20,10 @@ export default defineConfig({
     presetAttributify(),
     presetIcons({
       scale: 1.2,
+      extraProperties: {
+        'display': 'inline-block',
+        'vertical-align': 'middle',
+      },
     }),
     presetTypography(),
     presetWebFonts({
@@ -34,5 +38,27 @@ export default defineConfig({
   transformers: [
     transformerDirectives(),
     transformerVariantGroup(),
+  ],
+  safelist: [
+    'i-twemoji-grinning-face-with-big-eyes',
+    'i-twemoji-beaming-face-with-smiling-eyes',
+    'i-twemoji-face-with-tears-of-joy',
+    'i-twemoji-rolling-on-the-floor-laughing',
+    'i-twemoji-smiling-face-with-halo',
+    'i-twemoji-winking-face',
+    'i-twemoji-star-struck',
+    'i-twemoji-face-blowing-a-kiss',
+    'i-twemoji-upside-down-face',
+    'i-twemoji-zany-face',
+    'i-twemoji-shushing-face',
+    'i-twemoji-thinking-face',
+    'i-twemoji-face-with-monocle',
+    'i-twemoji-nerd-face',
+    'i-twemoji-smiling-face-with-sunglasses',
+    'i-twemoji-cowboy-hat-face',
+    'i-twemoji-clown-face',
+    'i-twemoji-ghost',
+    'i-twemoji-alien',
+    'i-twemoji-robot',
   ],
 })
