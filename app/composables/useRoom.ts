@@ -5,9 +5,8 @@ export interface User {
   avatar: string
 }
 // 扩展 User 接口，包含连接状态
-export interface UserWithStatus extends User {
-  rtcState: RTCIceConnectionState | 'no-connection' // 'no-connection' 是我们的自定义状态
-}
+
+export interface UserWithStatus extends User { rtcState: RTCIceConnectionState | 'no-connection' }
 
 export interface MessageLog {
   type: 'received' | 'sent' | 'local_info' | 'error' | 'local_error'
@@ -26,6 +25,81 @@ export function useRoom(roomId: string) {
   // 实例化底层模块
   const ws = useWebSocketCore()
   const rtc = useWebRtcManager(ws.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
+  const fileTransfer = useFileTransfer()
+
+  // 文件选择相关
+  const { files, open, reset } = useFileDialog({ multiple: false })
+
+  let fileToSend: File | null = null
+  let peerToSendTo: string | null = null
+
+  watch(files, (selectedFiles) => {
+    const file = selectedFiles?.[0]
+    if (file && peerToSendTo) {
+      fileToSend = file
+      const metadata: FileMetadata = { name: file.name, size: file.size, type: file.type }
+      ws.sendMessage('file_transfer_request', { targetId: peerToSendTo, file: metadata })
+      fileTransfer.createTransferState(peerToSendTo, metadata, true)
+    }
+  })
+  // 处理来自 WebRTC 管理器的 DataChannel 事件
+  rtc.onDataChannelEvents({
+    onOpen: (peerId) => {
+      // eslint-disable-next-line no-console
+      console.log(`[Room] DataChannel with ${peerId} opened.`)
+      // 如果有待发送的文件，并且是发给这个 peer 的，现在可以发送了
+      const state = fileTransfer.transferStates.get(peerId)
+      if (state && state.isSender && state.state === 'requesting' && fileToSend && peerId === peerToSendTo) {
+        // 这是一个不好的耦合，更好的方式是在 'file_transfer_accepted' 消息中触发
+      }
+    },
+    onClose: (peerId) => { fileTransfer.failTransfer(peerId) },
+    onMessage: (peerId, message) => { // message 是一个我们自己定义的对象，不是原始的 event.data
+      switch (message.type) {
+        case 'start': {
+          // 接收方: 文件开始传输
+          fileTransfer.createTransferState(peerId, message.payload, false)
+          break
+        }
+        case 'end': {
+          // 接收方: 文件接收完成，触发下载
+          fileTransfer.completeTransfer(peerId)
+          const { blob, name } = message.payload
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = name
+          a.click()
+          URL.revokeObjectURL(url)
+          break
+        }
+        case 'progress': {
+          // 接收方: 更新进度条
+          if (message.payload.receivedBytes) {
+            const progress = Math.round((message.payload.receivedBytes / message.payload.totalBytes) * 100)
+            fileTransfer.updateTransferProgress(peerId, progress)
+          }
+          break
+        }
+        // 新增: 发送方处理自己的进度更新
+        case 'sender_progress': {
+          const progress = Math.round((message.payload.sentBytes / message.payload.totalBytes) * 100)
+          fileTransfer.updateTransferProgress(peerId, progress)
+          break
+        }
+
+        // 新增: 发送方处理自己的完成状态
+        case 'sender_complete': {
+          fileTransfer.completeTransfer(peerId)
+          // 清理状态，以便可以进行下一次传输
+          fileToSend = null
+          peerToSendTo = null
+          reset()
+          break
+        }
+      }
+    },
+  })
 
   // 将 WebSocket 消息路由到正确的处理器
   function handleWebSocketMessage(message: any) {
@@ -86,8 +160,37 @@ export function useRoom(roomId: string) {
       case 'room_message':
         // ...
         break
+
+      case 'file_transfer_request': {
+        const sender = usersInRoom.value.find(u => u.id === message.payload.senderId)
+        if (sender) { fileTransfer.addIncomingRequest(sender, message.payload.file) }
+        break
+      }
+      case 'file_transfer_accepted': {
+        const peerId = message.payload.senderId
+        // eslint-disable-next-line no-console
+        console.log(`[Room] ${peerId} accepted file transfer.`)
+        if (fileToSend && peerId === peerToSendTo) {
+          rtc.sendFile(peerId, fileToSend)
+        }
+        else {
+          console.error('No file or matching peer to send to.')
+        }
+        break
+      }
+      case 'file_transfer_rejected': {
+        const peerId = message.payload.senderId
+        fileTransfer.rejectTransfer(peerId)
+        // 清理状态
+        fileToSend = null
+        peerToSendTo = null
+        reset()
+        break
+      }
     }
   }
+  // 将 WebSocket 的 onMessage 指向我们的处理器
+  ws.onMessage(handleWebSocketMessage)
 
   // 监听用户列表变化以自动建立 WebRTC 连接
   watch(
@@ -116,9 +219,6 @@ export function useRoom(roomId: string) {
     }))
   })
 
-  // 将 WebSocket 的 onMessage 指向我们的处理器
-  ws.onMessage(handleWebSocketMessage)
-
   function join() {
     ws.connect()
     // ws.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
@@ -137,6 +237,25 @@ export function useRoom(roomId: string) {
     ws.disconnect() // 这会触发 onclose，并清理所有状态
   }
 
+  function selectFileForPeer(peerId: string) {
+    peerToSendTo = peerId
+    open()
+  }
+
+  function acceptFileRequest(peerId: string) {
+    ws.sendMessage('file_transfer_accepted', { targetId: peerId })
+    const request = fileTransfer.incomingRequests.get(peerId)
+    if (request) {
+      fileTransfer.createTransferState(peerId, request.file, false)
+      fileTransfer.removeIncomingRequest(peerId)
+    }
+  }
+
+  function rejectFileRequest(peerId: string) {
+    ws.sendMessage('file_transfer_rejected', { targetId: peerId })
+    fileTransfer.removeIncomingRequest(peerId)
+  }
+
   onUnmounted(() => {
     leave() // 确保离开页面时断开连接
   })
@@ -153,5 +272,10 @@ export function useRoom(roomId: string) {
     leave,
     // 透传一个通用的发送消息方法，用于如测试广播等
     sendMessage: ws.sendMessage,
+    transferStates: fileTransfer.transferStates,
+    incomingRequests: fileTransfer.incomingRequests,
+    selectFileForPeer,
+    acceptFileRequest,
+    rejectFileRequest,
   }
 }

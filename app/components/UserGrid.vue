@@ -4,17 +4,17 @@
 interface Props {
   users: UserWithStatus[]
   myClientId: string | null
+  transferStates: Map<string, TransferProgress>
+  incomingRequests: Map<string, TransferRequest>
 }
 
 defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'select-user', userId: string): void
+  (e: 'accept-request', userId: string): void
+  (e: 'reject-request', userId: string): void
 }>()
-
-function handleUserSelect(userId: string) {
-  emit('select-user', userId)
-}
 </script>
 
 <template>
@@ -28,7 +28,11 @@ function handleUserSelect(userId: string) {
         :key="user.id"
         :user="user"
         :is-self="user.id === myClientId"
-        @select="handleUserSelect"
+        :transfer-state="transferStates.get(user.id)"
+        :incoming-request="incomingRequests.get(user.id)"
+        @select="emit('select-user', $event)"
+        @accept="emit('accept-request', $event)"
+        @reject="emit('reject-request', $event)"
       />
     </div>
     <p v-else class="text-gray-500 dark:text-gray-400">

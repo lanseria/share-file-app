@@ -14,6 +14,11 @@ const {
   isConnected,
   join, // 使用 join 方法
   sendMessage,
+  transferStates,
+  incomingRequests,
+  selectFileForPeer,
+  acceptFileRequest,
+  rejectFileRequest,
 } = useRoom(roomId)
 
 // 页面加载时自动加入房间
@@ -28,12 +33,6 @@ function sendBroadcastMessage() {
     sendMessage('broadcast_message', { data: inputMessage.value.trim() })
     inputMessage.value = ''
   }
-}
-
-// 处理从 UserGrid 传来的用户选择事件
-function handleUserSelect(userId: string) {
-  // eslint-disable-next-line no-console
-  console.log(`TODO: 准备向用户 ${userId} 发送文件`)
 }
 </script>
 
@@ -76,7 +75,15 @@ function handleUserSelect(userId: string) {
     </div>
 
     <!-- 用户网格组件 -->
-    <UserGrid :users="usersInRoom" :my-client-id="myClientId" @select-user="handleUserSelect" />
+    <UserGrid
+      :users="usersInRoom"
+      :my-client-id="myClientId"
+      :transfer-states="transferStates"
+      :incoming-requests="incomingRequests"
+      @select-user="selectFileForPeer"
+      @accept-request="acceptFileRequest"
+      @reject-request="rejectFileRequest"
+    />
 
     <!-- 消息日志组件 -->
     <MessageLog :messages="messages" />

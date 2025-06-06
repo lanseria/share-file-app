@@ -219,7 +219,10 @@ wss.on('connection', (ws) => {
       // 新增: 处理 WebRTC 信令消息的转发
       case 'offer':
       case 'answer':
-      case 'candidate': {
+      case 'candidate':
+      case 'file_transfer_request':
+      case 'file_transfer_accepted':
+      case 'file_transfer_rejected': {
         forwardMessage(message)
         break
       }
