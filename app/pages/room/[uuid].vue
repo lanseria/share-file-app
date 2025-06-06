@@ -109,7 +109,7 @@ function connectWebSocket() {
           break
         }
         case 'user_left':{
-          const leftUserId = messageData.payload?.userId
+          const leftUserId = messageData.payload?.id
           if (leftUserId) {
             usersInRoom.value = usersInRoom.value.filter(user => user.id !== leftUserId)
             // eslint-disable-next-line no-console
@@ -259,7 +259,7 @@ const selfUser = computed(() => usersInRoom.value.find(user => user.id === myCli
         <div v-for="(msg, index) in messages" :key="index" class="font-mono mb-1">
           <span
             :class="{
-              'text-green-600 dark:text-green-400': msg.type === 'received' || msg.type === 'room_joined',
+              'text-green-600 dark:text-green-400': msg.type === 'received',
               'text-blue-600 dark:text-blue-400': msg.type === 'sent',
               'text-yellow-600 dark:text-yellow-400': msg.type === 'local_info',
               'text-red-600 dark:text-red-400': msg.type === 'error' || msg.type === 'local_error',

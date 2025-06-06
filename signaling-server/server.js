@@ -1,8 +1,9 @@
+import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
 // signaling-server/server.js
 import { WebSocket, WebSocketServer } from 'ws'
 
-const PORT = process.env.PORT || 8080
+const PORT = env.PORT || 8080
 const wss = new WebSocketServer({ port: PORT })
 
 // 用于存储房间和客户端连接信息
@@ -73,6 +74,7 @@ wss.on('connection', (ws) => {
       message = JSON.parse(messageText.toString())
     }
     catch (e) {
+      console.error(`Error parsing message from ${clientId}:`, e)
       console.error(`Failed to parse message from ${clientId}:`, messageText.toString())
       ws.send(JSON.stringify({ type: 'error', payload: 'Invalid JSON message' }))
       return
@@ -106,7 +108,7 @@ wss.on('connection', (ws) => {
             // 通知旧房间其他用户此人离开
             broadcastToRoom(currentClient.roomId, {
               type: 'user_left',
-              payload: { userId: currentClient.id },
+              payload: { id: currentClient.id },
             })
           }
         }
@@ -149,7 +151,7 @@ wss.on('connection', (ws) => {
         broadcastToRoom(roomId, {
           type: 'user_joined',
           payload: {
-            userId: currentClient.id,
+            id: currentClient.id,
             name: currentClient.name,
             avatar: currentClient.avatar,
           },
@@ -214,7 +216,7 @@ wss.on('connection', (ws) => {
         // 通知房间内其他用户有人离开 (可选，后续会用到)
         broadcastToRoom(closingClient.roomId, {
           type: 'user_left',
-          payload: { userId: closingClient.id },
+          payload: { id: closingClient.id },
         })
       }
     }
