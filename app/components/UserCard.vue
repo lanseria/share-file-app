@@ -17,24 +17,23 @@ const emit = defineEmits<{
   (e: 'reconnect', userId: string): void // 新增 reconnect 事件
   (e: 'cancel', userId: string): void // 新增
 }>()
-// 计算属性，判断该用户是否可进行文件传输
+// isClickable 计算属性现在只关心是否可以发起 *新* 的传输
 const isClickable = computed(() => {
   if (props.transferState) {
     return false
   }
-  // 不是自己，且 WebRTC 连接状态为 'connected' 或 'completed'
   return !props.isSelf && (props.user.rtcState === 'connected' || props.user.rtcState === 'completed')
 })
 
+// handleClick 只处理发起新传输的点击
 function handleClick() {
   if (isClickable.value) {
     emit('select', props.user.id)
   }
-  else if (!props.isSelf) {
-    // 可以给用户一个提示，为什么不能点击
+  else if (!props.isSelf && !props.transferState) {
+    // 只有在没有进行传输时，才提示无法连接
     // eslint-disable-next-line no-console
     console.log(`无法向 ${props.user.name} 发送文件，因为连接状态是: ${props.user.rtcState}`)
-    // 之后可以在这里弹出一个 Toast 通知
   }
 }
 // 计算属性，判断状态指示器是否可以点击以重连
@@ -78,76 +77,104 @@ function formatSpeed(bytesPerSecond: number): string {
     return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`
   }
 }
+// 增加一个格式化文件大小的辅助函数
+function formatFileSize(bytes: number): string {
+  if (bytes === 0)
+    return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`
+}
 </script>
 
 <template>
   <div
-    class="user-card p-4 border rounded-lg flex flex-col shadow transition-all items-center dark:border-gray-700"
+    class="user-card group p-4 border rounded-lg flex flex-col shadow transition-all items-center relative dark:border-gray-700"
     :class="{
-      'cursor-pointer hover:shadow-md dark:hover:border-gray-500': isClickable, // 只有可点击时才显示指针和悬浮效果
-      'cursor-not-allowed opacity-75': !isSelf && !isClickable, // 对不可点击的用户显示禁用状态
+      // 当可以发起新传输时，显示手型光标和悬浮效果
+      'cursor-pointer hover:shadow-md dark:hover:border-gray-500': isClickable,
+      // 当不可以发起新传输时，显示默认光标 (不再是 not-allowed)
+      'cursor-default': !isClickable,
       'border-green-500 ring-2 ring-green-500 dark:border-green-400 dark:ring-green-400': isSelf,
     }"
     @click="handleClick"
   >
+    <!-- 主要内容: 头像和名称 -->
     <div :class="user.avatar" class="text-5xl mb-2 h-16 w-16" />
     <span class="font-semibold truncate" :title="user.name">{{ user.name }}</span>
     <span v-if="isSelf" class="text-xs text-gray-500 dark:text-gray-400">(你)</span>
-    <!-- 新增: 文件传输请求 UI -->
-    <div v-if="incomingRequest" class="text-xs mt-2 p-2 text-center rounded-md bg-blue-100 w-full dark:bg-blue-900">
-      <p class="font-semibold mb-1">
-        想发送文件: {{ incomingRequest.file.name }}
-      </p>
-      <div class="flex gap-2 justify-center">
-        <button class="text-white px-2 py-1 rounded bg-green-500" @click.stop="emit('accept', user.id)">
-          接受
-        </button>
-        <button class="text-white px-2 py-1 rounded bg-red-500" @click.stop="emit('reject', user.id)">
-          拒绝
-        </button>
+
+    <!-- 状态显示区域 (使用 v-if / v-else-if / v-else 控制显示优先级) -->
+    <div class="text-xs mt-2 text-center w-full">
+      <!-- 1. 优先显示文件传入请求 -->
+      <div v-if="incomingRequest" class="p-2 rounded-md bg-blue-100 w-full dark:bg-blue-900">
+        <p class="font-semibold mb-1 truncate" :title="incomingRequest.file.name">
+          {{ incomingRequest.file.name }}
+        </p>
+        <p class="text-gray-600 mb-2 dark:text-gray-400">
+          {{ formatFileSize(incomingRequest.file.size) }}
+        </p>
+        <div class="flex gap-2 justify-center">
+          <button class="text-xs text-white px-3 py-1 rounded bg-green-500 hover:bg-green-600" @click.stop="emit('accept', user.id)">
+            接受
+          </button>
+          <button class="text-xs text-white px-3 py-1 rounded bg-red-500 hover:bg-red-600" @click.stop="emit('reject', user.id)">
+            拒绝
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. 其次显示文件传输进度 -->
+      <div v-else-if="transferState" class="w-full">
+        <!-- 信息行: 文件名, 大小, 速度 -->
+        <div class="mb-1 flex items-baseline justify-between">
+          <p class="font-semibold max-w-[60%] truncate" :title="transferState.fileName">
+            {{ transferState.fileName }}
+          </p>
+          <span v-if="transferState.state === 'transferring'" class="text-gray-500 font-mono dark:text-gray-400">
+            {{ formatSpeed(transferState.speed) }}
+          </span>
+          <span v-else class="text-gray-500 dark:text-gray-400">
+            {{ formatFileSize(transferState.fileSize) }}
+          </span>
+        </div>
+        <!-- 进度条行 -->
+        <div class="rounded-full bg-gray-200 h-2 w-full relative dark:bg-gray-700">
+          <div
+            class="rounded-full bg-green-500 h-full transition-all duration-300"
+            :style="{ width: `${transferState.progress}%` }"
+          />
+        </div>
+        <!-- 状态文本 -->
+        <p class="text-gray-500 mt-1 dark:text-gray-400">
+          {{ transferState.progress }}% - {{ transferState.state }}
+        </p>
+      </div>
+
+      <!-- 3. 最后显示 WebRTC 连接状态 -->
+      <div
+        v-else-if="!isSelf"
+        class="flex gap-1 cursor-pointer items-center justify-center"
+        :class="[
+          rtcStatusInfo.color,
+          { 'hover:opacity-75': canReconnect },
+        ]"
+        title="点击以重新连接"
+        @click.stop="handleStatusClick"
+      >
+        <div :class="rtcStatusInfo.icon" />
+        <span>{{ rtcStatusInfo.text }}</span>
       </div>
     </div>
 
-    <!-- 文件传输进度 UI -->
-    <div v-if="transferState" class="text-xs mt-2 w-full">
-      <div class="flex items-center justify-between">
-        <p class="truncate">
-          {{ transferState.fileName }}
-        </p>
-        <!-- 新增: 速度显示 -->
-        <span v-if="transferState.state === 'transferring'" class="font-mono">{{ formatSpeed(transferState.speed) }}</span>
-        <!-- 新增: 取消按钮 -->
-        <button
-          v-if="transferState.state === 'transferring' || transferState.state === 'requesting'"
-          class="i-carbon-close-outline text-red-500 ml-2 hover:text-red-700"
-          title="取消传输"
-          @click.stop="emit('cancel', user.id)"
-        />
-        <div class="rounded-full bg-gray-200 h-4 w-full relative dark:bg-gray-700">
-          <div
-            class="rounded-full bg-green-500 h-full absolute"
-            :style="{ width: `${transferState.progress}%` }"
-          />
-          <span class="text-white text-center w-full absolute mix-blend-difference">
-            {{ transferState.progress }}% - {{ transferState.state }}
-          </span>
-        </div>
-      </div>
-    </div>
-    <!-- 修改: WebRTC 连接状态指示器 -->
-    <div
-      v-if="!isSelf"
-      class="text-xs mt-2 flex gap-1 cursor-pointer items-center"
-      :class="[
-        rtcStatusInfo.color,
-        { 'hover:opacity-75': canReconnect }, // 可点击时增加悬浮效果
-      ]"
-      title="点击以重新连接"
-      @click.stop="handleStatusClick"
-    >
-      <div :class="rtcStatusInfo.icon" />
-      <span>{{ rtcStatusInfo.text }}</span>
-    </div>
+    <!-- 取消按钮: 悬浮在卡片右上角显示 -->
+    <button
+      v-if="transferState && (transferState.state === 'transferring' || transferState.state === 'requesting')"
+      class="i-carbon-close-outline text-xl text-red-500 opacity-0 cursor-pointer transition-opacity right-2 top-2 absolute hover:text-red-700 group-hover:opacity-100"
+      title="取消传输"
+      @click.stop="emit('cancel', user.id)"
+    />
   </div>
 </template>
 
