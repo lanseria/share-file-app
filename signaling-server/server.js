@@ -5,7 +5,14 @@ import { WebSocket, WebSocketServer } from 'ws'
 
 const PORT = env.PORT || 8080
 const wss = new WebSocketServer({ port: PORT })
-
+// --- 新增: 定义允许的来源 (白名单) ---
+// 注意: WebSocket 的 Origin 头可能不包含端口号，也可能是 null (例如非浏览器客户端)
+// 对于浏览器，它通常是 `http://hostname:port` 或 `https://hostname:port`
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000', // Nuxt 开发环境
+  'http://127.0.0.1:3000', // Nuxt 开发环境的另一种访问方式
+  'https://share-file-nuxt.netlify.app', // 你的生产环境域名
+]
 // 用于存储房间和客户端连接信息
 // 结构:
 // rooms = {
@@ -19,6 +26,8 @@ const clients = new Map()
 
 // eslint-disable-next-line no-console
 console.log(`Signaling server started on ws://localhost:${PORT}`)
+// eslint-disable-next-line no-console
+console.log('Allowed origins:', ALLOWED_ORIGINS.join(', '))
 
 // 预设的头像和名称，用于随机分配
 const PRESET_AVATARS = [
@@ -57,7 +66,31 @@ function generateRandomUserData() {
   }
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // --- 新增: 来源校验逻辑 ---
+  const origin = req.headers.origin
+  const clientIp = req.socket.remoteAddress // 获取客户端 IP
+
+  // eslint-disable-next-line no-console
+  console.log(`New connection attempt from origin: ${origin}, IP: ${clientIp}`)
+
+  // 1. 检查 Origin 头是否在白名单中
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    // 2. 特殊情况：如果 Origin 不存在或不在白名单，我们再检查 Host 是否为 localhost
+    // 这可以处理一些非浏览器客户端或特殊情况，但要注意安全风险
+    const host = req.headers.host // 例如 'localhost:8080'
+    const isLocalhost = host?.startsWith('localhost') || host?.startsWith('127.0.0.1')
+
+    // 如果 Origin 不在白名单，并且 Host 也不是 localhost，则拒绝连接
+    if (!ALLOWED_ORIGINS.includes(origin) && !isLocalhost) {
+      console.warn(`Connection rejected: Origin "${origin}" is not in the allowed list.`)
+      ws.terminate() // 使用 terminate 更直接地关闭底层连接
+      return
+    }
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(`Connection accepted from origin: ${origin}`)
   // 为每个连接生成一个唯一的客户端 ID
   const clientId = uuidv4()
   // 为新连接的客户端生成随机用户数据
