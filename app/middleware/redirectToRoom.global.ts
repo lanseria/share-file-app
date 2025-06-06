@@ -1,7 +1,7 @@
 // middleware/redirectToRoom.global.ts
 import { v4 as uuidv4 } from 'uuid'
 
-export default defineNuxtRouteMiddleware((to, from) => {
+export default defineNuxtRouteMiddleware((to) => {
   // 检查是否是首次访问根路径，或者直接从外部访问根路径
   // 避免在房间内刷新页面时，如果 from 是 undefined，也重新生成
   // to.name === 'index' 是一个更可靠的判断是否为首页的方式 (如果你的首页路由名称是 'index')

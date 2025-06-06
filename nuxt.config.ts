@@ -60,7 +60,7 @@ export default defineNuxtConfig({
     prerender: {
       crawlLinks: false,
       routes: ['/'],
-      ignore: ['/room'],
+      ignore: ['/room/*'],
     },
   },
 
