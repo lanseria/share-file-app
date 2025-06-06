@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'select-user', userId: string): void
   (e: 'accept-request', userId: string): void
   (e: 'reject-request', userId: string): void
+  (e: 'reconnect-user', userId: string): void // 新增事件
 }>()
 </script>
 
@@ -33,6 +34,7 @@ const emit = defineEmits<{
         @select="emit('select-user', $event)"
         @accept="emit('accept-request', $event)"
         @reject="emit('reject-request', $event)"
+        @reconnect="emit('reconnect-user', $event)"
       />
     </div>
     <p v-else class="text-gray-500 dark:text-gray-400">

@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'select', userId: string): void
   (e: 'accept', userId: string): void
   (e: 'reject', userId: string): void
+  (e: 'reconnect', userId: string): void // 新增 reconnect 事件
 }>()
 // 计算属性，判断该用户是否可进行文件传输
 const isClickable = computed(() => {
@@ -32,7 +33,18 @@ function handleClick() {
     // 之后可以在这里弹出一个 Toast 通知
   }
 }
+// 计算属性，判断状态指示器是否可以点击以重连
+const canReconnect = computed(() => {
+  const state = props.user.rtcState
+  // 未连接、或已断开/失败时，可以点击重连
+  return state === 'no-connection' || state === 'failed' || state === 'disconnected' || state === 'closed'
+})
 
+function handleStatusClick() {
+  if (canReconnect.value) {
+    emit('reconnect', props.user.id)
+  }
+}
 // 计算属性，用于生成状态提示和图标
 const rtcStatusInfo = computed(() => {
   const state = props.user.rtcState
@@ -96,8 +108,17 @@ const rtcStatusInfo = computed(() => {
         </span>
       </div>
     </div>
-    <!-- 新增: WebRTC 连接状态指示器 -->
-    <div v-if="!isSelf" class="text-xs mt-2 flex gap-1 items-center" :class="rtcStatusInfo.color">
+    <!-- 修改: WebRTC 连接状态指示器 -->
+    <div
+      v-if="!isSelf"
+      class="text-xs mt-2 flex gap-1 cursor-pointer items-center"
+      :class="[
+        rtcStatusInfo.color,
+        { 'hover:opacity-75': canReconnect }, // 可点击时增加悬浮效果
+      ]"
+      title="点击以重新连接"
+      @click.stop="handleStatusClick"
+    >
       <div :class="rtcStatusInfo.icon" />
       <span>{{ rtcStatusInfo.text }}</span>
     </div>

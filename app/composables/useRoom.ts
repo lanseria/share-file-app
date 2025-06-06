@@ -218,7 +218,27 @@ export function useRoom(roomId: string) {
       rtcState: rtc.peerConnectionStates.get(user.id) || 'no-connection',
     }))
   })
+  // 新增: 一个可以从外部调用的、用于手动发起连接的方法
+  function manualInitiateConnection(peerId: string) {
+    if (!myClientId.value || peerId === myClientId.value) {
+      console.warn('Cannot initiate connection with self or without a client ID.')
+      return
+    }
 
+    const state = rtc.peerConnectionStates.get(peerId)
+
+    // 只有在没有连接或连接失败/断开时才发起
+    if (!state || state === 'failed' || state === 'disconnected' || state === 'closed') {
+      // eslint-disable-next-line no-console
+      console.log(`[Room] Manually initiating connection to ${peerId}`)
+      // 调用 WebRTC 管理器的方法
+      rtc.initiatePeerConnection(peerId)
+    }
+    else {
+      // eslint-disable-next-line no-console
+      console.log(`[Room] Connection with ${peerId} is already in state: ${state}. No action taken.`)
+    }
+  }
   function join() {
     ws.connect()
     // ws.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
@@ -277,5 +297,6 @@ export function useRoom(roomId: string) {
     selectFileForPeer,
     acceptFileRequest,
     rejectFileRequest,
+    manualInitiateConnection,
   }
 }

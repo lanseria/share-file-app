@@ -19,6 +19,7 @@ const {
   selectFileForPeer,
   acceptFileRequest,
   rejectFileRequest,
+  manualInitiateConnection, // 确保这里解构出来了
 } = useRoom(roomId)
 
 // 页面加载时自动加入房间
@@ -83,6 +84,7 @@ function sendBroadcastMessage() {
       @select-user="selectFileForPeer"
       @accept-request="acceptFileRequest"
       @reject-request="rejectFileRequest"
+      @reconnect-user="manualInitiateConnection"
     />
 
     <!-- 消息日志组件 -->
