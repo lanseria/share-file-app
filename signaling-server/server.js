@@ -1,6 +1,6 @@
+// signaling-server/server.js
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
-// signaling-server/server.js
 import { WebSocket, WebSocketServer } from 'ws'
 
 const PORT = env.PORT || 8080
