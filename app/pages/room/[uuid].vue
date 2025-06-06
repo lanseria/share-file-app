@@ -20,6 +20,7 @@ const {
   acceptFileRequest,
   rejectFileRequest,
   manualInitiateConnection, // 确保这里解构出来了
+  cancelTransfer,
 } = useRoom(roomId)
 
 // 页面加载时自动加入房间
@@ -85,6 +86,7 @@ function sendBroadcastMessage() {
       @accept-request="acceptFileRequest"
       @reject-request="rejectFileRequest"
       @reconnect-user="manualInitiateConnection"
+      @cancel-transfer="cancelTransfer"
     />
 
     <!-- 消息日志组件 -->

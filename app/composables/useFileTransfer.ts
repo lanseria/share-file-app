@@ -21,6 +21,7 @@ export interface TransferProgress {
   fileName: string
   fileSize: number
   isSender: boolean // 标记是发送方还是接收方
+  speed: number // 字节/秒 (Bytes/s)
 }
 
 export function useFileTransfer() {
@@ -46,7 +47,15 @@ export function useFileTransfer() {
       fileName: file.name,
       fileSize: file.size,
       isSender,
+      speed: 0, // 初始化速度为 0
     })
+  }
+  // 新增: 更新速度的方法
+  function updateTransferSpeed(peerId: string, bytesPerSecond: number) {
+    const state = transferStates.get(peerId)
+    if (state) {
+      state.speed = bytesPerSecond
+    }
   }
 
   function updateTransferProgress(peerId: string, progress: number) {
@@ -101,5 +110,6 @@ export function useFileTransfer() {
     completeTransfer,
     rejectTransfer,
     failTransfer,
+    updateTransferSpeed, // 暴露新方法
   }
 }

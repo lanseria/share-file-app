@@ -15,9 +15,13 @@ const emit = defineEmits<{
   (e: 'accept', userId: string): void
   (e: 'reject', userId: string): void
   (e: 'reconnect', userId: string): void // 新增 reconnect 事件
+  (e: 'cancel', userId: string): void // 新增
 }>()
 // 计算属性，判断该用户是否可进行文件传输
 const isClickable = computed(() => {
+  if (props.transferState) {
+    return false
+  }
   // 不是自己，且 WebRTC 连接状态为 'connected' 或 'completed'
   return !props.isSelf && (props.user.rtcState === 'connected' || props.user.rtcState === 'completed')
 })
@@ -63,6 +67,17 @@ const rtcStatusInfo = computed(() => {
       return { text: '未连接', icon: 'i-carbon-wifi-off', color: 'text-gray-400' }
   }
 })
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond < 1024) {
+    return `${bytesPerSecond.toFixed(0)} B/s`
+  }
+  else if (bytesPerSecond < 1024 * 1024) {
+    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`
+  }
+  else {
+    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`
+  }
+}
 </script>
 
 <template>
@@ -93,19 +108,30 @@ const rtcStatusInfo = computed(() => {
       </div>
     </div>
 
-    <!-- 新增: 文件传输进度 UI -->
+    <!-- 文件传输进度 UI -->
     <div v-if="transferState" class="text-xs mt-2 w-full">
-      <p class="truncate">
-        {{ transferState.fileName }}
-      </p>
-      <div class="rounded-full bg-gray-200 h-4 w-full relative dark:bg-gray-700">
-        <div
-          class="rounded-full bg-green-500 h-full absolute"
-          :style="{ width: `${transferState.progress}%` }"
+      <div class="flex items-center justify-between">
+        <p class="truncate">
+          {{ transferState.fileName }}
+        </p>
+        <!-- 新增: 速度显示 -->
+        <span v-if="transferState.state === 'transferring'" class="font-mono">{{ formatSpeed(transferState.speed) }}</span>
+        <!-- 新增: 取消按钮 -->
+        <button
+          v-if="transferState.state === 'transferring' || transferState.state === 'requesting'"
+          class="i-carbon-close-outline text-red-500 ml-2 hover:text-red-700"
+          title="取消传输"
+          @click.stop="emit('cancel', user.id)"
         />
-        <span class="text-white text-center w-full absolute mix-blend-difference">
-          {{ transferState.progress }}% - {{ transferState.state }}
-        </span>
+        <div class="rounded-full bg-gray-200 h-4 w-full relative dark:bg-gray-700">
+          <div
+            class="rounded-full bg-green-500 h-full absolute"
+            :style="{ width: `${transferState.progress}%` }"
+          />
+          <span class="text-white text-center w-full absolute mix-blend-difference">
+            {{ transferState.progress }}% - {{ transferState.state }}
+          </span>
+        </div>
       </div>
     </div>
     <!-- 修改: WebRTC 连接状态指示器 -->

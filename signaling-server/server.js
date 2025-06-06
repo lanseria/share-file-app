@@ -222,7 +222,8 @@ wss.on('connection', (ws) => {
       case 'candidate':
       case 'file_transfer_request':
       case 'file_transfer_accepted':
-      case 'file_transfer_rejected': {
+      case 'file_transfer_rejected':
+      case 'file_transfer_cancelled': {
         forwardMessage(message)
         break
       }

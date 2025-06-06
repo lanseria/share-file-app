@@ -9,8 +9,12 @@ export interface DataChannelEventHandler {
 }
 
 const ICE_SERVERS = [
+  { urls: 'stun:stun.hitv.com:3478' },
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
 ]
 
 const CHUNK_SIZE = 64 * 1024 // 64KB
@@ -257,6 +261,15 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     }
   }
 
+  function closeDataChannel(peerId: string) {
+    const dataChannel = dataChannels.get(peerId)
+    if (dataChannel) {
+      // eslint-disable-next-line no-console
+      console.log(`[RTC] Manually closing data channel with ${peerId}`)
+      dataChannel.close()
+      dataChannels.delete(peerId) // 从 Map 中移除
+    }
+  }
   onUnmounted(() => {
     closeAllPeerConnections()
   })
@@ -267,6 +280,7 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     handleRtcMessage,
     closePeerConnection,
     closeAllPeerConnections,
+    closeDataChannel,
     sendFile, // 暴露 sendFile 方法
     onDataChannelEvents: (handler: DataChannelEventHandler) => { dataChannelEventHandler = handler },
   }

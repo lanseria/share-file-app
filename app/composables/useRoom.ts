@@ -25,7 +25,9 @@ export function useRoom(roomId: string) {
   // 实例化底层模块
   const ws = useWebSocketCore()
   const rtc = useWebRtcManager(ws.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
-  const fileTransfer = useFileTransfer()
+  const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
+
+  const speedCalculationState = reactive<Map<string, { lastTimestamp: number, lastBytes: number }>>(new Map())
 
   // 文件选择相关
   const { files, open, reset } = useFileDialog({ multiple: false })
@@ -61,9 +63,33 @@ export function useRoom(roomId: string) {
           fileTransfer.createTransferState(peerId, message.payload, false)
           break
         }
+        case 'progress': // 接收方进度
+        case 'sender_progress': { // 发送方进度
+          const state = speedCalculationState.get(peerId)
+          const now = Date.now()
+          const bytes = message.payload.receivedBytes ?? message.payload.sentBytes
+
+          if (state) {
+            const timeDiff = (now - state.lastTimestamp) / 1000 // 秒
+            const bytesDiff = bytes - state.lastBytes
+
+            if (timeDiff > 0) {
+              const speed = bytesDiff / timeDiff
+              fileTransfer.updateTransferSpeed(peerId, speed)
+            }
+          }
+
+          // 更新或初始化状态
+          speedCalculationState.set(peerId, { lastTimestamp: now, lastBytes: bytes })
+
+          const progress = Math.round((bytes / message.payload.totalBytes) * 100)
+          fileTransfer.updateTransferProgress(peerId, progress)
+          break
+        }
         case 'end': {
           // 接收方: 文件接收完成，触发下载
           fileTransfer.completeTransfer(peerId)
+          speedCalculationState.delete(peerId) // 清理速度计算状态
           const { blob, name } = message.payload
           const url = URL.createObjectURL(blob)
           const a = document.createElement('a')
@@ -73,24 +99,9 @@ export function useRoom(roomId: string) {
           URL.revokeObjectURL(url)
           break
         }
-        case 'progress': {
-          // 接收方: 更新进度条
-          if (message.payload.receivedBytes) {
-            const progress = Math.round((message.payload.receivedBytes / message.payload.totalBytes) * 100)
-            fileTransfer.updateTransferProgress(peerId, progress)
-          }
-          break
-        }
-        // 新增: 发送方处理自己的进度更新
-        case 'sender_progress': {
-          const progress = Math.round((message.payload.sentBytes / message.payload.totalBytes) * 100)
-          fileTransfer.updateTransferProgress(peerId, progress)
-          break
-        }
-
-        // 新增: 发送方处理自己的完成状态
         case 'sender_complete': {
           fileTransfer.completeTransfer(peerId)
+          speedCalculationState.delete(peerId) // 清理速度计算状态
           // 清理状态，以便可以进行下一次传输
           fileToSend = null
           peerToSendTo = null
@@ -187,6 +198,14 @@ export function useRoom(roomId: string) {
         reset()
         break
       }
+      case 'file_transfer_cancelled': { // 新增
+        const peerId = message.payload.senderId
+        // eslint-disable-next-line no-console
+        console.log(`[Room] ${peerId} cancelled the transfer.`)
+        fileTransfer.failTransfer(peerId)
+        rtc.closeDataChannel(peerId)
+        break
+      }
     }
   }
   // 将 WebSocket 的 onMessage 指向我们的处理器
@@ -276,6 +295,25 @@ export function useRoom(roomId: string) {
     fileTransfer.removeIncomingRequest(peerId)
   }
 
+  // 新增: 取消传输的方法
+  function cancelTransfer(peerId: string) {
+    // eslint-disable-next-line no-console
+    console.log(`[Room] Cancelling transfer with ${peerId}`)
+    // 1. 通知对方
+    ws.sendMessage('file_transfer_cancelled', { targetId: peerId })
+    // 2. 在本地标记为失败
+    fileTransfer.failTransfer(peerId)
+    // 3. 关闭 DataChannel
+    rtc.closeDataChannel(peerId)
+
+    // 清理发送状态
+    if (peerId === peerToSendTo) {
+      fileToSend = null
+      peerToSendTo = null
+      reset()
+    }
+  }
+
   onUnmounted(() => {
     leave() // 确保离开页面时断开连接
   })
@@ -298,5 +336,6 @@ export function useRoom(roomId: string) {
     acceptFileRequest,
     rejectFileRequest,
     manualInitiateConnection,
+    cancelTransfer,
   }
 }
