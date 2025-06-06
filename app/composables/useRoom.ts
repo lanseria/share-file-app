@@ -90,18 +90,22 @@ export function useRoom(roomId: string) {
   }
 
   // 监听用户列表变化以自动建立 WebRTC 连接
-  watch(usersInRoom, (newUsers, oldUsers) => {
-    if (!myClientId.value)
-      return
-
-    const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
-
-    newPeers.forEach((peer) => {
-      if (myClientId.value! < peer.id) {
-        rtc.initiatePeerConnection(peer.id)
-      }
-    })
-  }, { deep: true })
+  watch(
+    () => [...usersInRoom.value], // 关键改动：监听一个返回数组浅拷贝的 getter
+    (newUsers, oldUsers) => {
+      // eslint-disable-next-line no-console
+      console.log('User list changed. New length:', newUsers.length, 'Old length:', oldUsers.length)
+      if (!myClientId.value)
+        return
+      const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
+      newPeers.forEach((peer) => {
+        if (myClientId.value! < peer.id) {
+          rtc.initiatePeerConnection(peer.id)
+        }
+      })
+    },
+    { deep: true },
+  )
 
   // 新增: 创建一个计算属性，将用户列表和 WebRTC 连接状态合并
   const usersWithRtcStatus = computed<UserWithStatus[]>(() => {

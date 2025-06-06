@@ -1,6 +1,5 @@
 <script setup lang="ts">
 // app/components/MessageLog.vue
-import type { MessageLog } from '~/composables/useWebSocketSignaling'
 
 interface Props {
   messages: MessageLog[]
@@ -14,7 +13,7 @@ defineProps<Props>()
     <h3 class="text-lg font-semibold mb-2">
       信令消息日志:
     </h3>
-    <div class="text-sm p-2 border rounded bg-gray-50 max-h-96 overflow-y-auto dark:border-gray-700 dark:bg-gray-800">
+    <div class="text-sm p-2 text-left border rounded bg-gray-50 max-h-96 overflow-y-auto dark:border-gray-700 dark:bg-gray-800">
       <div v-for="(msg, index) in messages" :key="index" class="font-mono mb-1">
         <span
           :class="{
