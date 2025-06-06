@@ -60,5 +60,8 @@ export default defineConfig({
     'i-twemoji-ghost',
     'i-twemoji-alien',
     'i-twemoji-robot',
+
+    'i-carbon-wifi',
+    'i-carbon-wifi-off',
   ],
 })

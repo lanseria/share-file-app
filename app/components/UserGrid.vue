@@ -1,9 +1,8 @@
 <script setup lang="ts">
 // app/components/UserGrid.vue
-import type { User } from '~/composables/useWebSocketSignaling'
 
 interface Props {
-  users: User[]
+  users: UserWithStatus[]
   myClientId: string | null
 }
 

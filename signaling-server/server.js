@@ -87,6 +87,44 @@ wss.on('connection', (ws) => {
     // eslint-disable-next-line no-console
     console.log(`Received message from ${currentClient.id} (${currentClient.name}) in room ${currentClient.roomId || 'N/A'}:`, message)
 
+    // 新增: 定义一个函数来处理需要转发的消息
+    function forwardMessage(message) {
+      const targetId = message.payload?.targetId
+      if (!targetId) {
+        console.error(`Message type ${message.type} requires a targetId.`)
+        return
+      }
+
+      // 找到目标客户端
+      let targetClient = null
+      // clients Map 的 key 是 ws 对象, value 是 clientWrapper, 所以需要遍历查找
+      for (const client of clients.values()) {
+        if (client.id === targetId) {
+          targetClient = client
+          break
+        }
+      }
+
+      if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
+        // 在转发的消息中附加上发送者的 ID
+        const messageToSend = {
+          type: message.type,
+          payload: {
+            ...message.payload,
+            senderId: currentClient.id, // 让接收方知道是谁发来的
+          },
+        }
+        targetClient.ws.send(JSON.stringify(messageToSend))
+        // eslint-disable-next-line no-console
+        console.log(`Forwarded ${message.type} from ${currentClient.id} to ${targetId}`)
+      }
+      else {
+        console.warn(`Could not find or forward to target client ${targetId}`)
+        // 可以给发送方一个反馈
+        ws.send(JSON.stringify({ type: 'error', payload: `User ${targetId} not found or not connected.` }))
+      }
+    }
+
     switch (message.type) {
       case 'join_room': {
         const roomId = message.payload?.roomId
@@ -178,12 +216,13 @@ wss.on('connection', (ws) => {
         break
       }
 
-      // 后续会在这里添加处理 SDP Offer/Answer 和 ICE Candidate 的 case
-      // case 'offer':
-      // case 'answer':
-      // case 'candidate':
-      //   // ... 转发逻辑
-      //   break;
+      // 新增: 处理 WebRTC 信令消息的转发
+      case 'offer':
+      case 'answer':
+      case 'candidate': {
+        forwardMessage(message)
+        break
+      }
 
       default:
         // eslint-disable-next-line no-console

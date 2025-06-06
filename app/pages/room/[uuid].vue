@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // app/pages/room/[uuid].vue
-import { useWebSocketSignaling } from '~/composables/useWebSocketSignaling'
 
 const route = useRoute<'room-uuid'>()
 const roomId = route.params.uuid
 
-// 使用我们抽离的 Composable
+// 只需使用一个顶层 Composable
 const {
   messages,
   usersInRoom,
@@ -13,13 +12,13 @@ const {
   myName,
   myAvatar,
   isConnected,
-  connect,
+  join, // 使用 join 方法
   sendMessage,
-} = useWebSocketSignaling(roomId)
+} = useRoom(roomId)
 
-// 页面加载时自动连接
+// 页面加载时自动加入房间
 onMounted(() => {
-  connect()
+  join()
 })
 
 // 用于测试广播消息
@@ -35,7 +34,6 @@ function sendBroadcastMessage() {
 function handleUserSelect(userId: string) {
   // eslint-disable-next-line no-console
   console.log(`TODO: 准备向用户 ${userId} 发送文件`)
-  // 之后在这里触发文件选择框
 }
 </script>
 
