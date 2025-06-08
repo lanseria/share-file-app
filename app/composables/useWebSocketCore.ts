@@ -1,5 +1,4 @@
 // app/composables/useWebSocketCore.ts
-const SIGNALING_SERVER_URL = 'wss://lishi.rengshuai.com'
 
 // 定义一个事件处理器接口，让调用者可以注入自己的消息处理逻辑
 export interface MessageHandler {

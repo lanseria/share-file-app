@@ -26,7 +26,6 @@
     "@types/uuid": "catalog:backend",
     "@unocss/eslint-config": "catalog:build",
     "@unocss/nuxt": "catalog:build",
-    "@vite-pwa/nuxt": "catalog:build",
     "@vueuse/core": "catalog:frontend",
     "@vueuse/nuxt": "catalog:build",
     "eslint": "catalog:dev",

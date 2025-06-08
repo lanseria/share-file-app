@@ -8,3 +8,6 @@ export const ICE_SERVERS = [
 ]
 
 export const CHUNK_SIZE = 64 * 1024 // 64KB
+
+export const SIGNALING_SERVER_URL = 'wss://lishi.rengshuai.com'
+// export const SIGNALING_SERVER_URL = 'ws://111.231.0.12:3000'
