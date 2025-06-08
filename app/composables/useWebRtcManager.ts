@@ -8,17 +8,6 @@ export interface DataChannelEventHandler {
   onMessage: (peerId: string, data: any) => void
 }
 
-const ICE_SERVERS = [
-  { urls: 'stun:stun.hitv.com:3478' },
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
-]
-
-const CHUNK_SIZE = 64 * 1024 // 64KB
-
 export function useWebRtcManager(signalingSender: SignalingSender) {
   const peerConnections = new Map<string, RTCPeerConnection>()
   const dataChannels = new Map<string, RTCDataChannel>() // 存储 data channels

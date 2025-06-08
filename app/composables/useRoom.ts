@@ -3,6 +3,7 @@ export interface User {
   id: string
   name: string
   avatar: string
+  natType?: string // 可选的 natType 字段
 }
 // 扩展 User 接口，包含连接状态
 
@@ -26,6 +27,19 @@ export function useRoom(roomId: string) {
   const ws = useWebSocketCore()
   const rtc = useWebRtcManager(ws.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
   const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
+  const natDetector = useNatTypeDetector() // 实例化 NAT 检测器
+
+  // 监听 NAT 检测结果，一旦有结果就通过信令分享
+  watch(natDetector.natType, (newType) => {
+    if (newType !== 'Unknown' && ws.isConnected.value) {
+      ws.sendMessage('share_nat_type', { natType: newType })
+      // 更新自己的 NAT 类型显示
+      const self = usersInRoom.value.find(u => u.id === myClientId.value)
+      if (self) {
+        self.natType = newType
+      }
+    }
+  })
 
   const speedCalculationState = reactive<Map<string, { lastTimestamp: number, lastBytes: number }>>(new Map())
 
@@ -123,7 +137,12 @@ export function useRoom(roomId: string) {
         myName.value = message.payload?.name
         myAvatar.value = message.payload?.avatar
         if (myClientId.value && myName.value && myAvatar.value) {
-          const selfUser = { id: myClientId.value, name: myName.value, avatar: myAvatar.value }
+          const selfUser = {
+            id: myClientId.value,
+            name: myName.value,
+            avatar: myAvatar.value,
+            natType: natDetector.natType.value, // 使用当前检测到的类型
+          }
           if (!usersInRoom.value.find(u => u.id === selfUser.id)) {
             usersInRoom.value.push(selfUser)
           }
@@ -142,6 +161,14 @@ export function useRoom(roomId: string) {
         break
       }
       case 'user_joined': {
+        // 当新用户加入时，把自己的 NAT 类型信息发给他们
+        if (natDetector.natType.value !== 'Unknown') {
+          ws.sendMessage('nat_type_info', { // 使用一个点对点的消息
+            targetId: message.payload.userId,
+            natType: natDetector.natType.value,
+          })
+        }
+        // 添加新用户到列表
         const joinedUserPayload = message.payload
         if (joinedUserPayload && joinedUserPayload.id && joinedUserPayload.name && joinedUserPayload.avatar) {
           const userToAdd: User = { id: joinedUserPayload.id, name: joinedUserPayload.name, avatar: joinedUserPayload.avatar }
@@ -206,6 +233,17 @@ export function useRoom(roomId: string) {
         rtc.closeDataChannel(peerId)
         break
       }
+      // 新增 case
+      case 'nat_type_info': {
+        const userId = message.payload.userId || message.payload.senderId
+        const user = usersInRoom.value.find(u => u.id === userId)
+        if (user) {
+          user.natType = message.payload.natType
+          // eslint-disable-next-line no-console
+          console.log(`Updated NAT type for ${user.name}: ${user.natType}`)
+        }
+        break
+      }
     }
   }
   // 将 WebSocket 的 onMessage 指向我们的处理器
@@ -267,6 +305,10 @@ export function useRoom(roomId: string) {
       if (connected) {
         ws.sendMessage('join_room', { roomId })
         messages.value.push({ type: 'sent', text: `发送加入房间请求: ${roomId}` })
+        // 开始检测
+        // eslint-disable-next-line no-console
+        console.log('Starting NAT type detection...')
+        natDetector.detect()
         stopWatch() // 只需发送一次
       }
     })

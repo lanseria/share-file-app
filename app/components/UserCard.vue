@@ -166,6 +166,10 @@ function formatFileSize(bytes: number): string {
         <div :class="rtcStatusInfo.icon" />
         <span>{{ rtcStatusInfo.text }}</span>
       </div>
+      <!-- 新增: NAT 类型显示 -->
+      <div v-if="user.natType && user.natType !== 'Unknown'" class="text-xs text-gray-500 mt-1 dark:text-gray-400">
+        <span class="font-semibold">NAT:</span> {{ user.natType }}
+      </div>
     </div>
 
     <!-- 取消按钮: 悬浮在卡片右上角显示 -->

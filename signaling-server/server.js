@@ -260,7 +260,19 @@ wss.on('connection', (ws, req) => {
         forwardMessage(message)
         break
       }
-
+      case 'share_nat_type': {
+        if (!currentClient.roomId)
+          return
+        // 广播给房间内其他人
+        broadcastToRoom(currentClient.roomId, {
+          type: 'nat_type_info',
+          payload: {
+            userId: currentClient.id,
+            natType: message.payload.natType,
+          },
+        }, currentClient.id) // 不发给自己
+        break
+      }
       default:
         // eslint-disable-next-line no-console
         console.log(`Unknown message type from ${currentClient.id}: ${message.type}`)
