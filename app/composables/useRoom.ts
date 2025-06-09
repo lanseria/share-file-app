@@ -31,13 +31,10 @@ export function useRoom(roomId: string) {
 
   // 监听 NAT 检测结果，一旦有结果就通过信令分享
   watch(natDetector.natType, (newType) => {
-    if (newType !== 'Unknown' && ws.isConnected.value) {
+    // 只有当检测完成且不是初始状态时，才向服务器分享
+    if (newType !== 'Unknown' && newType !== 'Detecting...' && ws.isConnected.value) {
       ws.sendMessage('share_nat_type', { natType: newType })
-      // 更新自己的 NAT 类型显示
-      const self = usersInRoom.value.find(u => u.id === myClientId.value)
-      if (self) {
-        self.natType = newType
-      }
+      // 不再需要手动更新自己的 natType，等待服务器的广播来统一处理
     }
   })
 
@@ -132,49 +129,38 @@ export function useRoom(roomId: string) {
 
     switch (message.type) {
       // 房间逻辑
-      case 'room_joined': {
-        myClientId.value = message.payload?.clientId
-        myName.value = message.payload?.name
-        myAvatar.value = message.payload?.avatar
-        if (myClientId.value && myName.value && myAvatar.value) {
-          const selfUser = {
-            id: myClientId.value,
-            name: myName.value,
-            avatar: myAvatar.value,
-            natType: natDetector.natType.value, // 使用当前检测到的类型
-          }
-          if (!usersInRoom.value.find(u => u.id === selfUser.id)) {
-            usersInRoom.value.push(selfUser)
-          }
-        }
-        break
-      }
-      case 'existing_users': {
-        const existingUsers = message.payload?.users as User[]
-        if (existingUsers) {
-          existingUsers.forEach((newUser) => {
-            if (!usersInRoom.value.find(u => u.id === newUser.id)) {
-              usersInRoom.value.push(newUser)
-            }
-          })
-        }
-        break
-      }
+      case 'room_joined':
+      case 'existing_users':
       case 'user_joined': {
-        // 当新用户加入时，把自己的 NAT 类型信息发给他们
-        if (natDetector.natType.value !== 'Unknown') {
-          ws.sendMessage('nat_type_info', { // 使用一个点对点的消息
-            targetId: message.payload.userId,
-            natType: natDetector.natType.value,
-          })
-        }
-        // 添加新用户到列表
-        const joinedUserPayload = message.payload
-        if (joinedUserPayload && joinedUserPayload.id && joinedUserPayload.name && joinedUserPayload.avatar) {
-          const userToAdd: User = { id: joinedUserPayload.id, name: joinedUserPayload.name, avatar: joinedUserPayload.avatar }
-          if (userToAdd.id !== myClientId.value && !usersInRoom.value.find(u => u.id === userToAdd.id)) {
-            usersInRoom.value.push(userToAdd)
+        // 将所有用户更新逻辑统一处理
+        const usersToProcess = message.type === 'existing_users'
+          ? message.payload.users
+          : [message.payload.type === 'room_joined' ? { ...message.payload, id: message.payload.clientId } : { ...message.payload, id: message.payload.id }]
+
+        usersToProcess.forEach((rawUser: any) => {
+          const user: User = {
+            id: rawUser.id,
+            name: rawUser.name,
+            avatar: rawUser.avatar,
+            natType: rawUser.natType || 'Detecting...', // 如果服务器没有提供，则默认为 Detecting
           }
+
+          const existingUserIndex = usersInRoom.value.findIndex(u => u.id === user.id)
+          if (existingUserIndex > -1) {
+            // 更新已存在用户
+            usersInRoom.value[existingUserIndex] = { ...usersInRoom.value[existingUserIndex], ...user }
+          }
+          else {
+            // 添加新用户
+            usersInRoom.value.push(user)
+          }
+        })
+
+        // 如果是 room_joined，设置自己的信息
+        if (message.type === 'room_joined') {
+          myClientId.value = message.payload.clientId
+          myName.value = message.payload.name
+          myAvatar.value = message.payload.avatar
         }
         break
       }
@@ -235,12 +221,13 @@ export function useRoom(roomId: string) {
       }
       // 新增 case
       case 'nat_type_info': {
-        const userId = message.payload.userId || message.payload.senderId
+        const userId = message.payload.id || message.payload.senderId
         const user = usersInRoom.value.find(u => u.id === userId)
         if (user) {
+          // 直接更新用户的 natType 属性，Vue 的响应式系统会处理 UI 更新
           user.natType = message.payload.natType
           // eslint-disable-next-line no-console
-          console.log(`Updated NAT type for ${user.name}: ${user.natType}`)
+          console.log(`Updated NAT type for ${user.name} via broadcast: ${user.natType}`)
         }
         break
       }
@@ -253,8 +240,6 @@ export function useRoom(roomId: string) {
   watch(
     () => [...usersInRoom.value], // 关键改动：监听一个返回数组浅拷贝的 getter
     (newUsers, oldUsers) => {
-      // eslint-disable-next-line no-console
-      console.log('User list changed. New length:', newUsers.length, 'Old length:', oldUsers.length)
       if (!myClientId.value)
         return
       const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))

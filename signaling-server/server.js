@@ -197,6 +197,7 @@ wss.on('connection', (ws, req) => {
           id: client.id,
           name: client.name,
           avatar: client.avatar,
+          natType: client.natType, // <--- 新增
         }))
         ws.send(JSON.stringify({
           type: 'existing_users',
@@ -213,8 +214,10 @@ wss.on('connection', (ws, req) => {
           payload: {
             roomId,
             clientId: currentClient.id,
+            id: currentClient.id,
             name: currentClient.name,
             avatar: currentClient.avatar,
+            natType: currentClient.natType, // <--- 新增
           },
         }))
 
@@ -261,16 +264,22 @@ wss.on('connection', (ws, req) => {
         break
       }
       case 'share_nat_type': {
-        if (!currentClient.roomId)
+        if (!currentClient.roomId || !message.payload?.natType)
           return
-        // 广播给房间内其他人
+
+        // 1. 更新服务器上该客户端的状态
+        currentClient.natType = message.payload.natType
+        // eslint-disable-next-line no-console
+        console.log(`Updated NAT type for ${currentClient.id} to ${currentClient.natType}`)
+
+        // 2. 广播这个更新给房间内其他人
         broadcastToRoom(currentClient.roomId, {
-          type: 'nat_type_info',
+          type: 'nat_type_info', // 重用这个消息类型
           payload: {
-            userId: currentClient.id,
-            natType: message.payload.natType,
+            id: currentClient.id,
+            natType: currentClient.natType,
           },
-        }, currentClient.id) // 不发给自己
+        })
         break
       }
       default:

@@ -2,6 +2,7 @@
 
 export type NatType =
   | 'Unknown'
+  | 'Detecting...' // 新增状态
   | 'Cone NAT' // 包含 Full Cone, Restricted Cone, Port Restricted Cone 的统称
   | 'Symmetric NAT'
   | 'Blocked' // 无法连接到 STUN 服务器
@@ -15,8 +16,14 @@ export function useNatTypeDetector() {
   let pc: RTCPeerConnection | null = null
 
   function detect() {
-    // 重置状态
-    natType.value = 'Unknown'
+    if (natType.value === 'Detecting...') {
+      // eslint-disable-next-line no-console
+      console.log('NAT detection is already in progress.')
+      return
+    }
+
+    // 立即设置状态为 "Detecting..."
+    natType.value = 'Detecting...'
 
     // 使用临时的 RTCPeerConnection 来收集 ICE 候选
     // 我们不需要真正建立连接，只需要触发 onicecandidate
@@ -56,18 +63,10 @@ export function useNatTypeDetector() {
     }
 
     function analyseCandidates() {
-      if (srflxCandidates.length === 0) {
-        if (hostCandidates.length > 0) {
-          // 有本地地址但无法访问 STUN 服务器
-          natType.value = 'Blocked'
-        }
-        else {
-          // 可能网络完全不通
-          natType.value = 'Blocked'
-        }
+      if (srflxCandidates.length === 0 && hostCandidates.length === 0) {
+        natType.value = 'Blocked' // 如果完全没候选，就是 Blocked
         return
       }
-
       // 检查是否有公网 IP（host candidate 的 IP 和 srflx candidate 的 IP 相同）
       const hasPublicIp = hostCandidates.some(hc => srflxCandidates.some(sc => sc.address === hc.address))
       if (hasPublicIp) {
@@ -100,7 +99,7 @@ export function useNatTypeDetector() {
   }
 
   return {
-    natType: readonly(natType),
+    natType,
     detect,
   }
 }
