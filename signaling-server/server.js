@@ -1,7 +1,15 @@
+import dgram from 'node:dgram' // <--- 新增: 引入dgram模块用于UDP操作
 // signaling-server/server.js
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
 import { WebSocket, WebSocketServer } from 'ws'
+
+// --- 假设你的服务器有一个可从公网访问的IP地址 ---
+// 在生产环境中，你应该从环境变量或配置文件中读取
+// 如果你的服务器在NAT后面，你需要配置端口转发，并在这里填写真实的公网IP
+const SERVER_PUBLIC_IP = env.SERVER_PUBLIC_IP || '127.0.0.1'
+// eslint-disable-next-line no-console
+console.log(`Server public IP for NAT tests is configured as: ${SERVER_PUBLIC_IP}`)
 
 const PORT = env.PORT || 8080
 const HEARTBEAT_INTERVAL = 30000 // 30秒
@@ -25,6 +33,8 @@ const ALLOWED_ORIGINS = [
 const rooms = new Map()
 const clientsByWs = new Map() // 重命名 clients 为 clientsByWs 以明确其键
 const clientsById = new Map() // 新增 Map，用于通过 ID 查找
+// --- 新增: 用于管理NAT检测会话 ---
+const natTests = new Map() // key: clientId, value: { probeSocket, detectedPort, timer }
 
 // eslint-disable-next-line no-console
 console.log(`Signaling server started on ws://localhost:${PORT}`)
@@ -164,6 +174,112 @@ wss.on('connection', (ws, req) => {
     }
 
     switch (message.type) {
+      // --- 新增: NAT检测流程的消息处理 ---
+      case 'request_nat_detection': {
+        // 如果此客户端已有测试在进行，先清理掉
+        if (natTests.has(currentClient.id)) {
+          const oldTest = natTests.get(currentClient.id)
+          clearTimeout(oldTest.timer)
+          oldTest.probeSocket.close()
+          natTests.delete(currentClient.id)
+        }
+
+        const probeSocket = dgram.createSocket('udp4')
+        const testInfo = {
+          probeSocket,
+          detectedPort: null,
+          timer: setTimeout(() => { // 设置一个超时，比如20秒后自动清理
+            // eslint-disable-next-line no-console
+            console.log(`NAT test for ${currentClient.id} timed out.`)
+            probeSocket.close()
+            natTests.delete(currentClient.id)
+          }, 20000),
+        }
+        natTests.set(currentClient.id, testInfo)
+
+        probeSocket.on('error', (err) => {
+          console.error(`NAT probe socket error for ${currentClient.id}:\n${err.stack}`)
+          probeSocket.close()
+          natTests.delete(currentClient.id)
+        })
+
+        // 核心：当收到客户端发来的UDP包时
+        probeSocket.on('message', (msg, rinfo) => {
+          // eslint-disable-next-line no-console
+          console.log(`Received UDP probe from ${currentClient.id} at ${rinfo.address}:${rinfo.port}`)
+          // 记录下服务器实际看到的客户端源端口
+          testInfo.detectedPort = rinfo.port
+          // 可以选择在这里就回复一个UDP包，虽然对于检测不是必须的
+          probeSocket.send('ack', rinfo.port, rinfo.address)
+        })
+
+        // 绑定到一个随机可用端口
+        probeSocket.bind(0, () => {
+          const { port } = probeSocket.address()
+          // eslint-disable-next-line no-console
+          console.log(`NAT probe server for ${currentClient.id} listening on port ${port}`)
+
+          // 告诉客户端，向哪个地址和端口发送UDP探测包
+          ws.send(JSON.stringify({
+            type: 'nat_probe_info',
+            payload: {
+              ip: SERVER_PUBLIC_IP,
+              port,
+            },
+          }))
+        })
+        break
+      }
+
+      case 'report_stun_mapping': {
+        const testInfo = natTests.get(currentClient.id)
+        const reportedPort = message.payload?.port
+
+        if (!testInfo || !reportedPort) {
+          ws.send(JSON.stringify({ type: 'error', payload: 'NAT test not initiated or invalid report.' }))
+          return
+        }
+
+        // 等待一小段时间，确保UDP包可能已经到达
+        setTimeout(() => {
+          const { detectedPort, probeSocket, timer } = testInfo
+          clearTimeout(timer) // 清除超时定时器
+          probeSocket.close() // 关闭UDP socket
+          natTests.delete(currentClient.id) // 从Map中移除测试
+
+          let natType = 'Unknown'
+          if (detectedPort) {
+            if (detectedPort === reportedPort) {
+              natType = 'Cone' // 端口相同，是锥形
+            }
+            else {
+              natType = 'Symmetric' // 端口不同，是对称型
+            }
+          }
+          else {
+            natType = 'UDP Blocked or Symmetric' // 没收到包，可能是UDP被阻止或对称型（无法建立映射）
+          }
+
+          // eslint-disable-next-line no-console
+          console.log(`NAT Test Result for ${currentClient.id}: Reported Port (from STUN) = ${reportedPort}, Detected Port (at server) = ${detectedPort || 'N/A'}. Conclusion: ${natType}`)
+
+          // 将结果发回给客户端
+          ws.send(JSON.stringify({
+            type: 'nat_detection_result',
+            payload: { natType },
+          }))
+
+          // 同时更新服务器上的客户端状态并广播给房间其他人
+          currentClient.natType = natType
+          if (currentClient.roomId) {
+            broadcastToRoom(currentClient.roomId, {
+              type: 'nat_type_info',
+              payload: { id: currentClient.id, natType },
+            })
+          }
+        }, 500) // 延迟500ms确保UDP包有时间到达
+        break
+      }
       case 'join_room': {
         const roomId = message.payload?.roomId
         if (!roomId || typeof roomId !== 'string') {
@@ -295,7 +411,16 @@ wss.on('connection', (ws, req) => {
   })
 
   ws.on('close', () => {
+    // --- 新增: 清理该客户端可能存在的NAT测试 ---
     const closingClient = clientsByWs.get(ws)
+    if (closingClient && natTests.has(closingClient.id)) {
+      const test = natTests.get(closingClient.id)
+      clearTimeout(test.timer)
+      test.probeSocket.close()
+      natTests.delete(closingClient.id)
+      // eslint-disable-next-line no-console
+      console.log(`Cleaned up NAT test for disconnected client ${closingClient.id}`)
+    }
     if (!closingClient)
       return
 

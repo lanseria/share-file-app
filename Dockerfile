@@ -20,9 +20,22 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 
 COPY ./signaling-server/server.js /app/server.js 
 
+# --- 关键部分：设置环境变量 ---
+
+# 1. 为 PORT 设置一个默认值。
+#    这个值可以在 `docker run` 时被覆盖。
+#    它会告诉 Node.js 应用默认监听 8080 端口。
+ENV PORT=8080
+
+# 2. 为 SERVER_PUBLIC_IP 设置一个空的默认值。
+#    这强制要求在运行时必须提供这个环境变量，否则应用可能无法正常工作。
+#    这是一种很好的实践，避免了将生产环境的敏感信息或易变信息硬编码。
+ENV SERVER_PUBLIC_IP="107.191.41.14"
+
 # 暴露信令服务器运行的端口
-# 这个端口需要与你在 server.js 中定义的 PORT 一致
-EXPOSE 8080
+# EXPOSE 只是文档性的，告诉Docker这个容器打算使用哪个端口。
+# 它本身不会发布端口。实际发布端口是在 `docker run` 时用 -p 参数。
+EXPOSE ${PORT}
 
 # 设置非 root 用户运行，增加安全性 (可选但推荐)
 USER node
