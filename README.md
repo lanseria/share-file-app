@@ -2,7 +2,7 @@
 
 这是一个基于 WebRTC 技术实现的现代化、安全、快速的点对点（P2P）文件分享应用。无需将文件上传到任何服务器，数据直接在用户浏览器之间传输。
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/YOUR_NETLIFY_BADGE_ID/deploy-status)](https://app.netlify.com/sites/share-file-nuxt/deploys) <!-- 替换 YOUR_NETLIFY_BADGE_ID -->
+[![Netlify Status](https://api.netlify.com/api/v1/badges/53013dec-e937-4d9b-9140-a756fafd5209/deploy-status)](https://app.netlify.com/sites/share-file-nuxt/deploys)
 ![Nuxt](https://img.shields.io/badge/Nuxt-3.17-00DC82?logo=nuxt.js)
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-blue?logo=typescript)
