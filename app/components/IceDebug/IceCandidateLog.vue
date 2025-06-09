@@ -31,13 +31,16 @@ function formatPriority(p?: number) {
             <th class="p-2 w-[50px]">
               Type
             </th>
+            <th class="p-2 w-[90px]">
+              Protocol
+            </th>
             <th class="p-2 w-[120px]">
               Address
             </th>
             <th class="p-2 w-[55px]">
               Port
             </th>
-            <th class="p-2 w-[110px]">
+            <th class="p-2 w-[190px]">
               Priority
             </th>
             <th class="p-2">
@@ -47,12 +50,12 @@ function formatPriority(p?: number) {
         </thead>
         <tbody class="bg-white dark:bg-gray-900">
           <tr v-if="logEntries.length === 0">
-            <td colspan="6" class="text-gray-500 p-4 text-center">
+            <td colspan="7" class="text-gray-500 p-4 text-center">
               No ICE candidates gathered yet. Change config to start.
             </td>
           </tr>
           <tr v-for="(entry, index) in logEntries" :key="index" class="border-t dark:border-gray-700">
-            <td v-if="entry.type === 'done' || entry.type === 'error'" colspan="6" class="p-2" :class="entry.type === 'error' ? 'text-red-500' : 'text-green-500'">
+            <td v-if="entry.type === 'done' || entry.type === 'error'" colspan="7" class="p-2" :class="entry.type === 'error' ? 'text-red-500' : 'text-green-500'">
               [{{ entry.time.toFixed(3) }}s] {{ entry.type === 'done' ? 'Gathering complete.' : `Error: ${entry.errorText}` }}
             </td>
             <template v-else>
@@ -61,6 +64,9 @@ function formatPriority(p?: number) {
               </td>
               <td class="p-2">
                 {{ entry.type }}
+              </td>
+              <td class="p-2" :title="entry.protocol">
+                {{ entry.protocol }}
               </td>
               <td class="p-2 truncate" :title="entry.address">
                 {{ entry.address }}

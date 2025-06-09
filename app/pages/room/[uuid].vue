@@ -25,6 +25,8 @@ const {
   editableIceServers,
   iceTransportPolicy,
   iceCandidateLog,
+  manualDetectNat, // 获取手动检测方法
+
 } = useRoom(roomId)
 
 // 页面加载时自动加入房间
@@ -91,6 +93,7 @@ function sendBroadcastMessage() {
       @reject-request="rejectFileRequest"
       @reconnect-user="manualInitiateConnection"
       @cancel-transfer="cancelTransfer"
+      @detect-nat="manualDetectNat"
     />
     <!-- !! 新增: ICE 调试组件 !! -->
     <IceDebug

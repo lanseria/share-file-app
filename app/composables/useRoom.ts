@@ -68,12 +68,21 @@ export function useRoom(roomId: string) {
   const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
   const natDetector = useNatTypeDetector() // 实例化 NAT 检测器
 
-  // 监听 NAT 检测结果，一旦有结果就通过信令分享
+  // --- 关联 NAT 检测器和 ICE 日志 ---
+  natDetector.onIceCandidate((entry) => {
+    iceCandidateLog.value.push(entry)
+  })
+
+  // 当用户在 ICE Debug 面板更改配置时，我们只需要清空日志，等待下次手动触发
+  watch([editableIceServers, iceTransportPolicy], () => {
+    iceCandidateLog.value = []
+    // 不再自动重置连接
+  }, { deep: true })
+
+  // 监听 NAT 检测结果，并通过信令分享给房间其他人
   watch(natDetector.natType, (newType) => {
-    // 只有当检测完成且不是初始状态时，才向服务器分享
     if (newType !== 'Unknown' && newType !== 'Detecting...' && wsStore.isConnected) {
       wsStore.sendMessage('share_nat_type', { natType: newType })
-      // 不再需要手动更新自己的 natType，等待服务器的广播来统一处理
     }
   })
 
@@ -181,7 +190,7 @@ export function useRoom(roomId: string) {
             id: rawUser.id,
             name: rawUser.name,
             avatar: rawUser.avatar,
-            natType: rawUser.natType || 'Detecting...', // 如果服务器没有提供，则默认为 Detecting
+            natType: rawUser.natType || 'Unknown', // 如果服务器没有提供，则默认为 Detecting
           }
 
           const existingUserIndex = usersInRoom.value.findIndex(u => u.id === user.id)
@@ -277,20 +286,20 @@ export function useRoom(roomId: string) {
   const unsubscribe = wsStore.onMessage(handleWebSocketMessage)
 
   // 监听用户列表变化以自动建立 WebRTC 连接
-  watch(
-    () => [...usersInRoom.value],
-    (newUsers, oldUsers) => {
-      if (!myClientId.value)
-        return
-      const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
-      newPeers.forEach((peer) => {
-        if (myClientId.value! < peer.id) {
-          manualInitiateConnection(peer.id) // 使用 manualInitiateConnection 统一发起
-        }
-      })
-    },
-    { deep: true },
-  )
+  // watch(
+  //   () => [...usersInRoom.value],
+  //   (newUsers, oldUsers) => {
+  //     if (!myClientId.value)
+  //       return
+  //     const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
+  //     newPeers.forEach((peer) => {
+  //       if (myClientId.value! < peer.id) {
+  //         manualInitiateConnection(peer.id) // 使用 manualInitiateConnection 统一发起
+  //       }
+  //     })
+  //   },
+  //   { deep: true },
+  // )
 
   // 新增: 创建一个计算属性，将用户列表和 WebRTC 连接状态合并
   const usersWithRtcStatus = computed<UserWithStatus[]>(() => {
@@ -300,29 +309,22 @@ export function useRoom(roomId: string) {
       rtcState: rtc.peerConnectionStates.get(user.id) || 'no-connection',
     }))
   })
-  // 新增: 一个可以从外部调用的、用于手动发起连接的方法
-  // !! 修改 manualInitiateConnection !!
+  // 手动发起 WebRTC 连接的方法 (这个方法保持不变，但调用时机由用户决定)
   function manualInitiateConnection(peerId: string) {
     if (!myClientId.value || peerId === myClientId.value)
       return
 
     const state = rtc.peerConnectionStates.get(peerId)
     if (!state || state === 'failed' || state === 'disconnected' || state === 'closed') {
-      // eslint-disable-next-line no-console
-      console.log(`[Room] Manually initiating connection to ${peerId} with new config.`)
-
-      // 准备 RTC 配置
       const configuration: RTCConfiguration = {
-        iceServers: editableIceServers.value,
+        iceServers: editableIceServers.value, // 使用当前的配置
         iceTransportPolicy: iceTransportPolicy.value,
       }
-
-      // 调用 WebRTC 管理器的方法，并传入配置
       rtc.initiatePeerConnection(peerId, configuration)
     }
     else {
       // eslint-disable-next-line no-console
-      console.log(`[Room] Connection with ${peerId} is already in state: ${state}. No action taken.`)
+      console.log(`[Room] Connection with ${peerId} is already in state: ${state}.`)
     }
   }
 
@@ -335,13 +337,31 @@ export function useRoom(roomId: string) {
       if (connected) {
         wsStore.sendMessage('join_room', { roomId })
         messages.value.push({ type: 'sent', text: `发送加入房间请求: ${roomId}` })
-        // 开始检测
-        // eslint-disable-next-line no-console
-        console.log('Starting NAT type detection...')
-        natDetector.detect()
         stopWatch() // 只需发送一次
       }
     })
+  }
+
+  // --- 新增: 手动触发 NAT 检测的方法 ---
+  function manualDetectNat() {
+    // 1. 清空旧日志
+    iceCandidateLog.value = []
+
+    // 2. 准备配置
+    const configuration: RTCConfiguration = {
+      iceServers: editableIceServers.value,
+      iceTransportPolicy: iceTransportPolicy.value,
+    }
+
+    // 3. 调用检测器
+    natDetector.detect(configuration)
+
+    // 4. 将自己的 NAT 类型状态也更新为 "Detecting..."
+    // 这样 UI 就能立即反馈
+    const self = usersInRoom.value.find(u => u.id === myClientId.value)
+    if (self) {
+      self.natType = 'Detecting...'
+    }
   }
 
   function leave() {
@@ -403,6 +423,7 @@ export function useRoom(roomId: string) {
     editableIceServers,
     iceTransportPolicy,
     iceCandidateLog,
+    manualDetectNat, // 导出手动检测方法
 
     join,
     leave,

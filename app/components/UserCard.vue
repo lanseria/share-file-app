@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'reject', userId: string): void
   (e: 'reconnect', userId: string): void // 新增 reconnect 事件
   (e: 'cancel', userId: string): void // 新增
+  (e: 'detect-nat'): void // 新增事件
 }>()
 // isClickable 计算属性现在只关心是否可以发起 *新* 的传输
 const isClickable = computed(() => {
@@ -151,26 +152,34 @@ function formatFileSize(bytes: number): string {
         </p>
       </div>
 
-      <!-- 3. 最后显示 WebRTC 连接状态 -->
+      <!-- WebRTC 连接状态 (适用于其他用户) -->
       <div
         v-else-if="!isSelf"
         class="flex gap-1 cursor-pointer items-center justify-center"
-        :class="[
-          rtcStatusInfo.color,
-          { 'hover:opacity-75': canReconnect },
-        ]"
-        title="点击以重新连接"
+        :class="[rtcStatusInfo.color, { 'hover:opacity-75': canReconnect }]"
+        title="点击以连接/重连"
         @click.stop="handleStatusClick"
       >
         <div :class="rtcStatusInfo.icon" />
         <span>{{ rtcStatusInfo.text }}</span>
       </div>
-      <!-- 新增: NAT 类型显示 -->
+
+      <!-- NAT 类型显示 -->
       <div v-if="user.natType && user.natType !== 'Unknown'" class="text-xs text-gray-500 mt-1 dark:text-gray-400">
         <span class="font-semibold">NAT: </span>
         <span v-if="user.natType === 'Detecting...'" class="animate-pulse">{{ user.natType }}</span>
         <span v-else>{{ user.natType }}</span>
       </div>
+
+      <!-- !! 新增: 自己的卡片上显示 NAT 检测按钮 !! -->
+      <button
+        v-if="isSelf"
+        class="text-xs mt-2 px-3 py-1 border rounded dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+        @click.stop="emit('detect-nat')"
+      >
+        <span class="i-carbon-network-4 mr-1" />
+        检测我的 NAT 类型
+      </button>
     </div>
 
     <!-- 取消按钮: 悬浮在卡片右上角显示 -->
