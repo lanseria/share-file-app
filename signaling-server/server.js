@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { WebSocket, WebSocketServer } from 'ws'
 
 const PORT = env.PORT || 8080
+const HEARTBEAT_INTERVAL = 30000 // 30秒
 const wss = new WebSocketServer({ port: PORT })
 // --- 新增: 定义允许的来源 (白名单) ---
 // 注意: WebSocket 的 Origin 头可能不包含端口号，也可能是 null (例如非浏览器客户端)
@@ -22,7 +23,8 @@ const ALLOWED_ORIGINS = [
 // }
 // WebSocketClientWrapper = { ws: WebSocket, id: string, roomId: string | null }
 const rooms = new Map()
-const clients = new Map()
+const clientsByWs = new Map() // 重命名 clients 为 clientsByWs 以明确其键
+const clientsById = new Map() // 新增 Map，用于通过 ID 查找
 
 // eslint-disable-next-line no-console
 console.log(`Signaling server started on ws://localhost:${PORT}`)
@@ -96,10 +98,19 @@ wss.on('connection', (ws, req) => {
   // 为新连接的客户端生成随机用户数据
   const userData = generateRandomUserData()
   const clientWrapper = { ws, id: clientId, roomId: null, ...userData } // 将 userData 合并
-  clients.set(ws, clientWrapper)
+
+  clientsByWs.set(ws, clientWrapper)
+  clientsById.set(clientId, clientWrapper) // 同时存入新的 Map
 
   // eslint-disable-next-line no-console
-  console.log(`Client ${clientId} (${clientWrapper.name}) connected. Total clients: ${clients.size}`)
+  console.log(`Client ${clientId} (${clientWrapper.name}) connected. Total clients: ${clientsByWs.size}`)
+
+  clientWrapper.isAlive = true // 为每个客户端增加一个存活标记
+  ws.on('pong', () => {
+    // eslint-disable-next-line no-console
+    console.log(`Pong received from ${clientWrapper.id}`)
+    clientWrapper.isAlive = true
+  })
 
   ws.on('message', (messageText) => {
     let message
@@ -113,7 +124,7 @@ wss.on('connection', (ws, req) => {
       return
     }
 
-    const currentClient = clients.get(ws)
+    const currentClient = clientsByWs.get(ws)
     if (!currentClient)
       return
 
@@ -129,14 +140,8 @@ wss.on('connection', (ws, req) => {
       }
 
       // 找到目标客户端
-      let targetClient = null
-      // clients Map 的 key 是 ws 对象, value 是 clientWrapper, 所以需要遍历查找
-      for (const client of clients.values()) {
-        if (client.id === targetId) {
-          targetClient = client
-          break
-        }
-      }
+      // O(1) 查找！
+      const targetClient = clientsById.get(targetId)
 
       if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
         // 在转发的消息中附加上发送者的 ID
@@ -290,13 +295,14 @@ wss.on('connection', (ws, req) => {
   })
 
   ws.on('close', () => {
-    const closingClient = clients.get(ws)
+    const closingClient = clientsByWs.get(ws)
     if (!closingClient)
       return
 
-    clients.delete(ws)
+    clientsByWs.delete(ws)
+    clientsById.delete(closingClient.id) // 从 ID Map 中也删除
     // eslint-disable-next-line no-console
-    console.log(`Client ${closingClient.id} (${closingClient.name}) disconnected. Total clients: ${clients.size}`)
+    console.log(`Client ${closingClient.id} (${closingClient.name}) disconnected. Total clients: ${clientsByWs.size}`)
 
     if (closingClient.roomId && rooms.has(closingClient.roomId)) {
       const room = rooms.get(closingClient.roomId)
@@ -325,7 +331,25 @@ wss.on('connection', (ws, req) => {
     // 可以在这里尝试清理该客户端的连接和房间信息，类似 'close' 事件处理
   })
 })
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    const client = clientsByWs.get(ws)
+    if (!client || client.isAlive === false) {
+      console.warn(`Terminating dead connection for client ${client?.id || 'unknown'}`)
+      return ws.terminate()
+    }
 
+    client.isAlive = false // 假设它已经死了，等待 pong 来反证
+    ws.ping(() => {
+      // eslint-disable-next-line no-console
+      console.log(`Ping sent to ${client.id}`)
+    })
+  })
+}, HEARTBEAT_INTERVAL)
+// 确保服务器关闭时清理定时器
+wss.on('close', () => {
+  clearInterval(interval)
+})
 // 辅助函数：向指定房间广播消息
 function broadcastToRoom(roomId, message, excludeClientId = null) {
   const room = rooms.get(roomId)

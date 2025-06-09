@@ -2,7 +2,7 @@
 
 export type NatType =
   | 'Unknown'
-  | 'Detecting...' // 新增状态
+  | 'Detecting...'
   | 'Cone NAT' // 包含 Full Cone, Restricted Cone, Port Restricted Cone 的统称
   | 'Symmetric NAT'
   | 'Blocked' // 无法连接到 STUN 服务器

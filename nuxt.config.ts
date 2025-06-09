@@ -1,3 +1,4 @@
+import { env } from 'node:process'
 import { appDescription } from './app/constants/index'
 
 export default defineNuxtConfig({
@@ -34,6 +35,14 @@ export default defineNuxtConfig({
   colorMode: {
     classSuffix: '',
   },
+  runtimeConfig: {
+    // 这些值只能在服务器端访问
+    // private: {},
+    // public 中的值可以在客户端和服务器端访问
+    public: {
+      signalingServerUrl: env.NUXT_PUBLIC_SIGNALING_SERVER_URL || 'ws://localhost:8080',
+    },
+  },
 
   future: {
     compatibilityVersion: 4,
@@ -48,7 +57,6 @@ export default defineNuxtConfig({
   },
 
   compatibilityDate: '2024-08-14',
-
   nitro: {
     esbuild: {
       options: {

@@ -24,16 +24,16 @@ export function useRoom(roomId: string) {
   const myAvatar = ref<string | null>(null)
 
   // 实例化底层模块
-  const ws = useWebSocketCore()
-  const rtc = useWebRtcManager(ws.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
+  const wsStore = useWebSocketStore() // 使用 store
+  const rtc = useWebRtcManager(wsStore.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
   const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
   const natDetector = useNatTypeDetector() // 实例化 NAT 检测器
 
   // 监听 NAT 检测结果，一旦有结果就通过信令分享
   watch(natDetector.natType, (newType) => {
     // 只有当检测完成且不是初始状态时，才向服务器分享
-    if (newType !== 'Unknown' && newType !== 'Detecting...' && ws.isConnected.value) {
-      ws.sendMessage('share_nat_type', { natType: newType })
+    if (newType !== 'Unknown' && newType !== 'Detecting...' && wsStore.isConnected) {
+      wsStore.sendMessage('share_nat_type', { natType: newType })
       // 不再需要手动更新自己的 natType，等待服务器的广播来统一处理
     }
   })
@@ -51,7 +51,7 @@ export function useRoom(roomId: string) {
     if (file && peerToSendTo) {
       fileToSend = file
       const metadata: FileMetadata = { name: file.name, size: file.size, type: file.type }
-      ws.sendMessage('file_transfer_request', { targetId: peerToSendTo, file: metadata })
+      wsStore.sendMessage('file_transfer_request', { targetId: peerToSendTo, file: metadata })
       fileTransfer.createTransferState(peerToSendTo, metadata, true)
     }
   })
@@ -234,7 +234,8 @@ export function useRoom(roomId: string) {
     }
   }
   // 将 WebSocket 的 onMessage 指向我们的处理器
-  ws.onMessage(handleWebSocketMessage)
+  // 将 wsStore.onMessage(handleWebSocketMessage) 修改为：
+  const unsubscribe = wsStore.onMessage(handleWebSocketMessage)
 
   // 监听用户列表变化以自动建立 WebRTC 连接
   watch(
@@ -282,13 +283,13 @@ export function useRoom(roomId: string) {
     }
   }
   function join() {
-    ws.connect()
-    // ws.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
-    // 但 ws.connect 应该立即触发加入房间的请求
-    // 我们可以监听 ws.isConnected
-    const stopWatch = watch(ws.isConnected, (connected) => {
+    wsStore.connect()
+    // wsStore.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
+    // 但 wsStore.connect 应该立即触发加入房间的请求
+    // 我们可以监听 wsStore.isConnected
+    const stopWatch = watch(() => wsStore.isConnected, (connected) => {
       if (connected) {
-        ws.sendMessage('join_room', { roomId })
+        wsStore.sendMessage('join_room', { roomId })
         messages.value.push({ type: 'sent', text: `发送加入房间请求: ${roomId}` })
         // 开始检测
         // eslint-disable-next-line no-console
@@ -300,7 +301,7 @@ export function useRoom(roomId: string) {
   }
 
   function leave() {
-    ws.disconnect() // 这会触发 onclose，并清理所有状态
+    wsStore.disconnect() // 这会触发 onclose，并清理所有状态
   }
 
   function selectFileForPeer(peerId: string) {
@@ -309,7 +310,7 @@ export function useRoom(roomId: string) {
   }
 
   function acceptFileRequest(peerId: string) {
-    ws.sendMessage('file_transfer_accepted', { targetId: peerId })
+    wsStore.sendMessage('file_transfer_accepted', { targetId: peerId })
     const request = fileTransfer.incomingRequests.get(peerId)
     if (request) {
       fileTransfer.createTransferState(peerId, request.file, false)
@@ -318,7 +319,7 @@ export function useRoom(roomId: string) {
   }
 
   function rejectFileRequest(peerId: string) {
-    ws.sendMessage('file_transfer_rejected', { targetId: peerId })
+    wsStore.sendMessage('file_transfer_rejected', { targetId: peerId })
     fileTransfer.removeIncomingRequest(peerId)
   }
 
@@ -327,7 +328,7 @@ export function useRoom(roomId: string) {
     // eslint-disable-next-line no-console
     console.log(`[Room] Cancelling transfer with ${peerId}`)
     // 1. 通知对方
-    ws.sendMessage('file_transfer_cancelled', { targetId: peerId })
+    wsStore.sendMessage('file_transfer_cancelled', { targetId: peerId })
     // 2. 在本地标记为失败
     fileTransfer.failTransfer(peerId)
     // 3. 关闭 DataChannel
@@ -342,6 +343,7 @@ export function useRoom(roomId: string) {
   }
 
   onUnmounted(() => {
+    unsubscribe()
     leave() // 确保离开页面时断开连接
   })
 
@@ -351,12 +353,12 @@ export function useRoom(roomId: string) {
     myClientId,
     myName,
     myAvatar,
-    isConnected: ws.isConnected, // 直接透传 isConnected 状态
+    isConnected: wsStore.isConnected, // 直接透传 isConnected 状态
 
     join,
     leave,
     // 透传一个通用的发送消息方法，用于如测试广播等
-    sendMessage: ws.sendMessage,
+    sendMessage: wsStore.sendMessage,
     transferStates: fileTransfer.transferStates,
     incomingRequests: fileTransfer.incomingRequests,
     selectFileForPeer,

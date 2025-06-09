@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// app/components/DarkToggle.vue
 const color = useColorMode()
 
 useHead({

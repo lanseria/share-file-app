@@ -18,7 +18,8 @@ export function useWebSocketCore() {
       return
     }
 
-    const socket = new WebSocket(SIGNALING_SERVER_URL)
+    const wsUrl = getSignalingServerUrl()
+    const socket = new WebSocket(wsUrl)
     ws.value = socket
 
     socket.onopen = () => {

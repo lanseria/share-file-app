@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// app/pages/[...all].vue
 const router = useRouter()
 </script>
 
