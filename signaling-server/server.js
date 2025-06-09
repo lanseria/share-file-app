@@ -1,5 +1,5 @@
-import dgram from 'node:dgram' // <--- 新增: 引入dgram模块用于UDP操作
 // signaling-server/server.js
+import dgram from 'node:dgram' // <--- 新增: 引入dgram模块用于UDP操作
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -451,7 +451,7 @@ wss.on('connection', (ws, req) => {
   })
 
   ws.on('error', (error) => {
-    const errorClient = clients.get(ws)
+    const errorClient = clientsByWs.get(ws)
     console.error(`WebSocket error for client ${errorClient?.id || 'unknown'}:`, error)
     // 可以在这里尝试清理该客户端的连接和房间信息，类似 'close' 事件处理
   })
