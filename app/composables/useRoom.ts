@@ -42,7 +42,6 @@ export function useRoom(roomId: string) {
 
   // 实例化底层模块
   const wsStore = useWebSocketStore() // 使用 store
-
   const rtc = useWebRtcManager(wsStore.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
   // --- 注册新的事件处理器 ---
   rtc.onIceCandidate((entry) => {
@@ -66,25 +65,6 @@ export function useRoom(roomId: string) {
   }, { deep: true }) // deep watch for changes inside the array
 
   const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
-  const natDetector = useNatTypeDetector() // 实例化 NAT 检测器
-
-  // --- 关联 NAT 检测器和 ICE 日志 ---
-  natDetector.onIceCandidate((entry) => {
-    iceCandidateLog.value.push(entry)
-  })
-
-  // 当用户在 ICE Debug 面板更改配置时，我们只需要清空日志，等待下次手动触发
-  watch([editableIceServers, iceTransportPolicy], () => {
-    iceCandidateLog.value = []
-    // 不再自动重置连接
-  }, { deep: true })
-
-  // 监听 NAT 检测结果，并通过信令分享给房间其他人
-  watch(natDetector.natType, (newType) => {
-    if (newType !== 'Unknown' && newType !== 'Detecting...' && wsStore.isConnected) {
-      wsStore.sendMessage('share_nat_type', { natType: newType })
-    }
-  })
 
   const speedCalculationState = reactive<Map<string, { lastTimestamp: number, lastBytes: number }>>(new Map())
 
@@ -342,25 +322,22 @@ export function useRoom(roomId: string) {
     })
   }
 
-  // --- 新增: 手动触发 NAT 检测的方法 ---
-  function manualDetectNat() {
-    // 1. 清空旧日志
-    iceCandidateLog.value = []
-
-    // 2. 准备配置
-    const configuration: RTCConfiguration = {
-      iceServers: editableIceServers.value,
-      iceTransportPolicy: iceTransportPolicy.value,
-    }
-
-    // 3. 调用检测器
-    natDetector.detect(configuration)
-
-    // 4. 将自己的 NAT 类型状态也更新为 "Detecting..."
-    // 这样 UI 就能立即反馈
+  // -- 新的 NAT 检测触发方法 --
+  async function manualDetectNat() {
     const self = usersInRoom.value.find(u => u.id === myClientId.value)
-    if (self) {
+    if (self)
       self.natType = 'Detecting...'
+
+    try {
+      // 直接调用 store 的方法！
+      const natType = await wsStore.detectNatType()
+      console.log('NAT detection process finished. Result:', natType)
+      // 同样，不需要手动更新状态，等待服务器广播即可
+    }
+    catch (error) {
+      console.error('Failed to detect NAT type:', error)
+      if (self)
+        self.natType = 'Failed'
     }
   }
 
