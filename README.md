@@ -65,7 +65,7 @@
 1.  **克隆仓库**:
 
     ```bash
-    git clone https://github.com/your-username/share-file-app.git
+    git clone https://github.com/lanseria/share-file-app.git
     cd share-file-app
     ```
 
