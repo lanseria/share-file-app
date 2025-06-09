@@ -15,6 +15,19 @@ export interface MessageLog {
   text?: string
 }
 
+export interface IceCandidateLogEntry {
+  time: number
+  type: 'host' | 'srflx' | 'prflx' | 'relay' | 'done' | 'error'
+  foundation?: string
+  protocol?: 'udp' | 'tcp'
+  address?: string
+  port?: number
+  priority?: number
+  url?: string
+  relayProtocol?: 'udp' | 'tcp' | 'tls'
+  errorText?: string
+}
+
 export function useRoom(roomId: string) {
   // 状态
   const messages = ref<MessageLog[]>([])
@@ -22,10 +35,36 @@ export function useRoom(roomId: string) {
   const myClientId = ref<string | null>(null)
   const myName = ref<string | null>(null)
   const myAvatar = ref<string | null>(null)
+  // --- 新增 ICE 调试相关状态 ---
+  const editableIceServers = ref<RTCIceServer[]>([...ICE_SERVERS])
+  const iceTransportPolicy = ref<'all' | 'relay'>('all')
+  const iceCandidateLog = ref<IceCandidateLogEntry[]>([])
 
   // 实例化底层模块
   const wsStore = useWebSocketStore() // 使用 store
+
   const rtc = useWebRtcManager(wsStore.sendMessage) // 将 ws 的发送函数注入 rtc 管理器
+  // --- 注册新的事件处理器 ---
+  rtc.onIceCandidate((entry) => {
+    iceCandidateLog.value.push(entry)
+  })
+
+  // --- 监听配置变化并重置连接 ---
+  watch([editableIceServers, iceTransportPolicy], () => {
+    console.warn('ICE configuration changed. Resetting all peer connections.')
+    // 1. 清空日志
+    iceCandidateLog.value = []
+    // 2. 关闭所有现有连接
+    rtc.closeAllPeerConnections()
+    // 3. 遍历现有用户，用新配置重新发起连接
+    usersInRoom.value.forEach((user) => {
+      if (user.id !== myClientId.value) {
+        // 使用一个小的延迟，确保旧连接完全关闭
+        setTimeout(() => manualInitiateConnection(user.id), 100)
+      }
+    })
+  }, { deep: true }) // deep watch for changes inside the array
+
   const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
   const natDetector = useNatTypeDetector() // 实例化 NAT 检测器
 
@@ -239,14 +278,14 @@ export function useRoom(roomId: string) {
 
   // 监听用户列表变化以自动建立 WebRTC 连接
   watch(
-    () => [...usersInRoom.value], // 关键改动：监听一个返回数组浅拷贝的 getter
+    () => [...usersInRoom.value],
     (newUsers, oldUsers) => {
       if (!myClientId.value)
         return
       const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
       newPeers.forEach((peer) => {
         if (myClientId.value! < peer.id) {
-          rtc.initiatePeerConnection(peer.id)
+          manualInitiateConnection(peer.id) // 使用 manualInitiateConnection 统一发起
         }
       })
     },
@@ -262,26 +301,31 @@ export function useRoom(roomId: string) {
     }))
   })
   // 新增: 一个可以从外部调用的、用于手动发起连接的方法
+  // !! 修改 manualInitiateConnection !!
   function manualInitiateConnection(peerId: string) {
-    if (!myClientId.value || peerId === myClientId.value) {
-      console.warn('Cannot initiate connection with self or without a client ID.')
+    if (!myClientId.value || peerId === myClientId.value)
       return
-    }
 
     const state = rtc.peerConnectionStates.get(peerId)
-
-    // 只有在没有连接或连接失败/断开时才发起
     if (!state || state === 'failed' || state === 'disconnected' || state === 'closed') {
       // eslint-disable-next-line no-console
-      console.log(`[Room] Manually initiating connection to ${peerId}`)
-      // 调用 WebRTC 管理器的方法
-      rtc.initiatePeerConnection(peerId)
+      console.log(`[Room] Manually initiating connection to ${peerId} with new config.`)
+
+      // 准备 RTC 配置
+      const configuration: RTCConfiguration = {
+        iceServers: editableIceServers.value,
+        iceTransportPolicy: iceTransportPolicy.value,
+      }
+
+      // 调用 WebRTC 管理器的方法，并传入配置
+      rtc.initiatePeerConnection(peerId, configuration)
     }
     else {
       // eslint-disable-next-line no-console
       console.log(`[Room] Connection with ${peerId} is already in state: ${state}. No action taken.`)
     }
   }
+
   function join() {
     wsStore.connect()
     // wsStore.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
@@ -354,6 +398,11 @@ export function useRoom(roomId: string) {
     myName,
     myAvatar,
     isConnected: wsStore.isConnected, // 直接透传 isConnected 状态
+
+    // ICE Debug
+    editableIceServers,
+    iceTransportPolicy,
+    iceCandidateLog,
 
     join,
     leave,

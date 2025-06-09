@@ -2,6 +2,9 @@
 
 // 定义信令发送函数的类型签名
 export type SignalingSender = <T>(type: string, payload: T) => void
+// 定义新的类型
+export type IceCandidateHandler = (entry: any) => void // 使用 any 简化
+
 export interface DataChannelEventHandler {
   onOpen: (peerId: string) => void
   onClose: (peerId: string) => void
@@ -16,6 +19,8 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
   // 外部注入的事件处理器
   let dataChannelEventHandler: DataChannelEventHandler | null = null
   // 文件接收缓冲区: peerId -> { chunks[], metadata, receivedSize }
+  let iceCandidateHandler: IceCandidateHandler | null = null // 新增
+  let gatheringStartTime: number | null = null // 新增
 
   const fileReceiveBuffers = new Map<string, { chunks: ArrayBuffer[], metadata: any, receivedSize: number }>()
   function handleDataChannelMessage(peerId: string, data: any) {
@@ -64,25 +69,54 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     }
   }
 
-  function getOrCreatePeerConnection(peerId: string): RTCPeerConnection {
+  function getOrCreatePeerConnection(peerId: string, configuration: RTCConfiguration): RTCPeerConnection {
     let pc = peerConnections.get(peerId)
     if (!pc) {
-      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+      // 使用传入的动态配置
+      pc = new RTCPeerConnection(configuration)
       peerConnectionStates.set(peerId, pc.iceConnectionState)
-      pc.onicecandidate = (event) => { if (event.candidate) { signalingSender('candidate', { targetId: peerId, candidate: event.candidate }) } }
-      pc.oniceconnectionstatechange = () => {
-        const newState = pc?.iceConnectionState
-        if (newState) { peerConnectionStates.set(peerId, newState) }
-        if (newState === 'failed' || newState === 'disconnected' || newState === 'closed') { closePeerConnection(peerId) }
+      gatheringStartTime = performance.now() // 重置计时器
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          signalingSender('candidate', { targetId: peerId, candidate: event.candidate })
+          // 报告候选者给上层
+          const time = (performance.now() - (gatheringStartTime || 0)) / 1000
+          iceCandidateHandler?.({
+            time,
+            type: event.candidate.type,
+            foundation: event.candidate.foundation,
+            protocol: event.candidate.protocol,
+            address: event.candidate.address,
+            port: event.candidate.port,
+            priority: event.candidate.priority,
+            url: event.candidate.candidate.split(' ').slice(-2)[0], // 简单的 URL 解析
+          })
+        }
       }
 
-      pc.ondatachannel = (event) => {
-        const channel = event.channel
-        // eslint-disable-next-line no-console
-        console.log(`[RTC] Received data channel "${channel.label}" from ${peerId}`)
-        setupDataChannel(peerId, channel) // 使用辅助函数来设置
+      pc.onicegatheringstatechange = () => {
+        const newState = pc?.iceGatheringState
+        if (newState === 'complete') {
+          const time = (performance.now() - (gatheringStartTime || 0)) / 1000
+          iceCandidateHandler?.({ type: 'done', time })
+        }
+        const connState = pc?.iceConnectionState
+        if (connState)
+          peerConnectionStates.set(peerId, connState)
+        if (connState === 'failed' || connState === 'disconnected' || connState === 'closed')
+          closePeerConnection(peerId)
       }
 
+      pc.onicecandidateerror = (event) => {
+        const time = (performance.now() - (gatheringStartTime || 0)) / 1000
+        iceCandidateHandler?.({
+          type: 'error',
+          time,
+          errorText: `Code ${event.errorCode}: ${event.errorText}`,
+        })
+      }
+      // ... (ondatachannel)
       peerConnections.set(peerId, pc)
     }
     return pc
@@ -106,8 +140,8 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     channel.onmessage = event => handleDataChannelMessage(peerId, event.data)
   }
 
-  async function initiatePeerConnection(peerId: string) {
-    const pc = getOrCreatePeerConnection(peerId)
+  async function initiatePeerConnection(peerId: string, configuration: RTCConfiguration) {
+    const pc = getOrCreatePeerConnection(peerId, configuration) // 传递配置
 
     // 只有在没有数据通道时才创建
     if (!dataChannels.has(peerId)) {
@@ -202,7 +236,9 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     if (!peerId)
       return
 
-    const pc = getOrCreatePeerConnection(peerId)
+    // 注意：这里我们无法获取到对方的 ICE 配置，所以使用默认值。
+    // 这对于接收 Offer 来说是可行的，因为配置主要影响本地候选者的生成。
+    const pc = getOrCreatePeerConnection(peerId, { iceServers: ICE_SERVERS }) // 使用默认配置
 
     switch (message.type) {
       case 'offer':{
@@ -272,5 +308,6 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     closeDataChannel,
     sendFile, // 暴露 sendFile 方法
     onDataChannelEvents: (handler: DataChannelEventHandler) => { dataChannelEventHandler = handler },
+    onIceCandidate: (handler: IceCandidateHandler) => { iceCandidateHandler = handler }, // 新增
   }
 }

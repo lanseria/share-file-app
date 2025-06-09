@@ -21,6 +21,10 @@ const {
   rejectFileRequest,
   manualInitiateConnection, // 确保这里解构出来了
   cancelTransfer,
+  // 新增: 解构 ICE 调试相关的状态
+  editableIceServers,
+  iceTransportPolicy,
+  iceCandidateLog,
 } = useRoom(roomId)
 
 // 页面加载时自动加入房间
@@ -88,7 +92,12 @@ function sendBroadcastMessage() {
       @reconnect-user="manualInitiateConnection"
       @cancel-transfer="cancelTransfer"
     />
-
+    <!-- !! 新增: ICE 调试组件 !! -->
+    <IceDebug
+      v-model:ice-servers="editableIceServers"
+      v-model:ice-transport-policy="iceTransportPolicy"
+      :ice-candidate-log="iceCandidateLog"
+    />
     <!-- 消息日志组件 -->
     <MessageLog :messages="messages" />
   </div>
