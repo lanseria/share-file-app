@@ -115,10 +115,13 @@
 
     # 启动新容器
     docker run -d \
-     -p 3000:8080 \
-     --name signaling-server \
-     --restart unless-stopped \
-     my-signaling-server:latest
+    --name signaling-server \
+    -p 3000:8080/tcp \
+    -p 40000-40100:40000-40100/udp \
+    -e SERVER_PUBLIC_IP="107.191.41.14" \
+    -e PORT=8080 \
+    --restart unless-stopped \
+    my-signaling-server:latest
     ```
 
     现在，您的信令服务器就在 `ws://your-server-ip:3000` 上运行了。

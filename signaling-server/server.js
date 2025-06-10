@@ -4,6 +4,30 @@ import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
 import { WebSocket, WebSocketServer } from 'ws'
 
+// --- 新增：定义和管理UDP端口池 ---
+const UDP_PORT_START = 40000
+const UDP_PORT_END = 40100 // 我们只用101个端口，足够同时支持101个NAT检测
+const usedUdpPorts = new Set()
+
+// eslint-disable-next-line no-console
+console.log(`Configured UDP port range for NAT tests: ${UDP_PORT_START}-${UDP_PORT_END}`)
+
+function getFreeUdpPort() {
+  for (let port = UDP_PORT_START; port <= UDP_PORT_END; port++) {
+    if (!usedUdpPorts.has(port)) {
+      usedUdpPorts.add(port)
+      return port
+    }
+  }
+  return null // 返回 null 表示端口池已满
+}
+
+function releaseUdpPort(port) {
+  if (port) {
+    usedUdpPorts.delete(port)
+  }
+}
+
 // --- 假设你的服务器有一个可从公网访问的IP地址 ---
 // 在生产环境中，你应该从环境变量或配置文件中读取
 // 如果你的服务器在NAT后面，你需要配置端口转发，并在这里填写真实的公网IP
@@ -183,23 +207,39 @@ wss.on('connection', (ws, req) => {
           oldTest.probeSocket.close()
           natTests.delete(currentClient.id)
         }
+        // ---【核心修改】---
+        const probePort = getFreeUdpPort()
+
+        if (!probePort) {
+          console.warn(`No available UDP ports for NAT test for client ${currentClient.id}. Port pool is full.`)
+          ws.send(JSON.stringify({ type: 'error', payload: 'Server is busy, no available ports for NAT test. Please try again later.' }))
+          return
+        }
 
         const probeSocket = dgram.createSocket('udp4')
+
+        // 新增：在socket关闭时，确保释放端口
+        probeSocket.on('close', () => {
+          releaseUdpPort(probePort)
+          // eslint-disable-next-line no-console
+          console.log(`Released UDP port ${probePort} for client ${currentClient.id}`)
+        })
+
         const testInfo = {
           probeSocket,
           detectedPort: null,
-          timer: setTimeout(() => { // 设置一个超时，比如20秒后自动清理
+          timer: setTimeout(() => {
             // eslint-disable-next-line no-console
-            console.log(`NAT test for ${currentClient.id} timed out.`)
-            probeSocket.close()
+            console.log(`NAT test for ${currentClient.id} on port ${probePort} timed out.`)
+            probeSocket.close() // 这会触发上面的 'close' 事件来释放端口
             natTests.delete(currentClient.id)
           }, 20000),
         }
         natTests.set(currentClient.id, testInfo)
 
         probeSocket.on('error', (err) => {
-          console.error(`NAT probe socket error for ${currentClient.id}:\n${err.stack}`)
-          probeSocket.close()
+          console.error(`NAT probe socket error for ${currentClient.id} on port ${probePort}:\n${err.stack}`)
+          probeSocket.close() // 触发 'close'
           natTests.delete(currentClient.id)
         })
 
@@ -213,18 +253,16 @@ wss.on('connection', (ws, req) => {
           probeSocket.send('ack', rinfo.port, rinfo.address)
         })
 
-        // 绑定到一个随机可用端口
-        probeSocket.bind(0, () => {
-          const { port } = probeSocket.address()
+        // ---【核心修改】---
+        // 不再使用 bind(0)，而是绑定我们自己分配的端口
+        probeSocket.bind(probePort, () => {
           // eslint-disable-next-line no-console
-          console.log(`NAT probe server for ${currentClient.id} listening on port ${port}`)
-
-          // 告诉客户端，向哪个地址和端口发送UDP探测包
+          console.log(`NAT probe server for ${currentClient.id} listening on port ${probePort}`)
           ws.send(JSON.stringify({
             type: 'nat_probe_info',
             payload: {
               ip: SERVER_PUBLIC_IP,
-              port,
+              port: probePort, // 使用我们分配的端口
             },
           }))
         })

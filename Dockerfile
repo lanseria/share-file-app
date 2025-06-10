@@ -30,12 +30,13 @@ ENV PORT=8080
 # 2. 为 SERVER_PUBLIC_IP 设置一个空的默认值。
 #    这强制要求在运行时必须提供这个环境变量，否则应用可能无法正常工作。
 #    这是一种很好的实践，避免了将生产环境的敏感信息或易变信息硬编码。
-ENV SERVER_PUBLIC_IP="107.191.41.14"
+# ENV SERVER_PUBLIC_IP="107.191.41.14"
 
 # 暴露信令服务器运行的端口
 # EXPOSE 只是文档性的，告诉Docker这个容器打算使用哪个端口。
 # 它本身不会发布端口。实际发布端口是在 `docker run` 时用 -p 参数。
-EXPOSE ${PORT}
+EXPOSE 8080/tcp
+EXPOSE 40000-40100/udp
 
 # 设置非 root 用户运行，增加安全性 (可选但推荐)
 USER node
