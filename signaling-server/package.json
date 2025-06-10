@@ -5,7 +5,6 @@
   "devDependencies": {
     "@types/uuid": "catalog:backend",
     "uuid": "catalog:backend",
-    "werift": "catalog:backend",
     "ws": "catalog:backend"
   }
 }

@@ -3,11 +3,8 @@
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
 // 引入 werift 和其他必要的模块
-import { RTCPeerConnection, RTCSessionDescription } from 'werift' // <--- 核心变化
 import { WebSocket, WebSocketServer } from 'ws'
 
-const SERVER_PUBLIC_IP = env.SERVER_PUBLIC_IP
-console.log(`Server public IP for NAT tests is configured as: ${SERVER_PUBLIC_IP}`)
 const PORT = env.PORT || 8080
 const HEARTBEAT_INTERVAL = 30000 // 30秒
 
@@ -18,19 +15,10 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000', // Nuxt 开发环境的另一种访问方式
   'https://share-file-nuxt.netlify.app', // 你的生产环境域名
 ]
-// 用于存储房间和客户端连接信息
-// 结构:
-// rooms = {
-//   "roomId1": Set<WebSocketClientWrapper>,
-//   "roomId2": Set<WebSocketClientWrapper>,
-//   ...
-// }
-// WebSocketClientWrapper = { ws: WebSocket, id: string, roomId: string | null }
+
 const rooms = new Map()
 const clientsByWs = new Map() // 重命名 clients 为 clientsByWs 以明确其键
 const clientsById = new Map() // 新增 Map，用于通过 ID 查找
-// 用于存储每个客户端的 WebRTC 测试连接
-const webrtcTests = new Map() // key: clientId, value: RTCPeerConnection
 
 console.log(`Signaling server started on ws://localhost:${PORT}`)
 console.log('Allowed origins:', ALLOWED_ORIGINS.join(', '))
@@ -163,134 +151,6 @@ wss.on('connection', (ws, req) => {
     }
 
     switch (message.type) {
-      // --- 【新的 WebRTC 测试逻辑】 ---
-      case 'request_webrtc_test_offer': {
-        const { offer } = message.payload
-        if (!offer) {
-          ws.send(JSON.stringify({ type: 'error', payload: 'Offer not provided for WebRTC test' }))
-          return
-        }
-
-        // 如果之前有测试，先清理掉
-        if (webrtcTests.has(currentClient.id)) {
-          webrtcTests.get(currentClient.id)?.close()
-        }
-
-        if (!SERVER_PUBLIC_IP) {
-          console.error(`[${currentClient.id}] FATAL: SERVER_PUBLIC_IP is not set. Cannot create WebRTC connection.`)
-          ws.send(JSON.stringify({ type: 'error', payload: 'Server configuration error: Missing public IP.' }))
-          return
-        }
-        const peerConnection = new RTCPeerConnection({
-          icePortRange: [40000, 40100],
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        })
-        webrtcTests.set(currentClient.id, peerConnection)
-
-        console.log(`[${currentClient.id}] Created PeerConnection.`)
-
-        // 监听ICE候选者事件 (使用文档确认的 onicecandidate 属性)
-        // 事件对象 event 包含一个 .candidate 属性
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
-            console.log(`[${currentClient.id}] Found ICE candidate:`, event.candidate.toJSON())
-
-            ws.send(JSON.stringify({
-              type: 'webrtc_test_candidate',
-              payload: event.candidate.toJSON(),
-            }))
-          }
-          else {
-            // candidate 为 null 表示该轮次的收集结束
-            console.log(`[${currentClient.id}] ICE gathering finished.`)
-          }
-        }
-
-        // 监听ICE连接状态变化 (使用 oniceconnectionstatechange 属性)
-        peerConnection.oniceconnectionstatechange = () => {
-          const state = peerConnection.iceConnectionState
-          console.log(`[${currentClient.id}] ICE Connection state changed: ${state}`)
-          if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-            peerConnection.close()
-            webrtcTests.delete(currentClient.id)
-          }
-        }
-
-        // 监听信令状态，提供更多调试信息
-        peerConnection.onsignalingstatechange = () => {
-          console.log(`[${currentClient.id}] Signaling state changed: ${peerConnection.signalingState}`)
-        }
-
-        // --- 【实验性修改】 ---
-        // 1. 在做任何其他事情之前，先添加一个transceiver。
-        // 我们不发送任何媒体，所以方向是'recvonly'。
-        // 这就像是告诉PC：“准备好接收东西”，这应该会强制启动所有必要的子系统。
-        peerConnection.addTransceiver('video', { direction: 'recvonly' })
-        peerConnection.addTransceiver('audio', { direction: 'recvonly' })
-
-        // 创建一个数据通道，以完成连接建立
-        const dc = peerConnection.createDataChannel('test-channel')
-        dc.onopen = () => {
-          console.log(`[${currentClient.id}] Data channel opened!`)
-          dc.send('Hello from server!')
-        }
-        dc.onmessage = (msg) => {
-          console.log(`[${currentClient.id}] Message from client: ${msg}`)
-        }
-
-        // 3. 异步流程开始
-        ;(async () => {
-          try {
-            console.log(`[${currentClient.id}] Setting remote description...`)
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer.type, offer.sdp))
-
-            // 在调用 createAnswer 之前，我们可以检查一下ICE收集状态
-            // 但更好的方式是让 onicecandidate 日志来说话
-
-            console.log(`[${currentClient.id}] Creating answer...`)
-            const answer = await peerConnection.createAnswer()
-
-            console.log(`[${currentClient.id}] Setting local description...`)
-            await peerConnection.setLocalDescription(answer)
-
-            console.log(`[${currentClient.id}] Sending answer to client.`)
-            ws.send(JSON.stringify({
-              type: 'webrtc_test_answer',
-              payload: { answer: peerConnection.localDescription.toJSON() },
-            }))
-          }
-          catch (error) {
-            console.error(`[${currentClient.id}] Error in WebRTC session setup:`, error)
-            ws.send(JSON.stringify({ type: 'error', payload: `Server-side WebRTC error: ${error.message}` }))
-            peerConnection.close()
-            webrtcTests.delete(currentClient.id)
-          }
-        })()
-
-        break
-      }
-
-      case 'webrtc_test_candidate': {
-        const { candidate } = message.payload
-        const peerConnection = webrtcTests.get(currentClient.id)
-        if (peerConnection && candidate) {
-          console.log(`[${currentClient.id}] Received client candidate, adding to PeerConnection.`);
-
-          // 将异步操作包装在立即执行的异步函数中
-          (async () => {
-            try {
-              // werift 的 addIceCandidate 可能需要一个 RTCIceCandidate 的实例
-              // 但通常也能接受一个普通的JSON对象
-              await peerConnection.addIceCandidate(candidate)
-            }
-            catch (error) {
-              console.error(`[${currentClient.id}] Error adding ICE candidate:`, error)
-            }
-          })()
-        }
-        break
-      }
-
       case 'join_room': {
         const roomId = message.payload?.roomId
         if (!roomId || typeof roomId !== 'string') {
@@ -329,7 +189,6 @@ wss.on('connection', (ws, req) => {
           id: client.id,
           name: client.name,
           avatar: client.avatar,
-          natType: client.natType, // <--- 新增
         }))
         ws.send(JSON.stringify({
           type: 'existing_users',
@@ -348,7 +207,6 @@ wss.on('connection', (ws, req) => {
             id: currentClient.id,
             name: currentClient.name,
             avatar: currentClient.avatar,
-            natType: currentClient.natType, // <--- 新增
           },
         }))
 
@@ -393,39 +251,17 @@ wss.on('connection', (ws, req) => {
         forwardMessage(message)
         break
       }
-      case 'share_nat_type': {
-        if (!currentClient.roomId || !message.payload?.natType)
-          return
-
-        // 1. 更新服务器上该客户端的状态
-        currentClient.natType = message.payload.natType
-
-        console.log(`Updated NAT type for ${currentClient.id} to ${currentClient.natType}`)
-
-        // 2. 广播这个更新给房间内其他人
-        broadcastToRoom(currentClient.roomId, {
-          type: 'nat_type_info', // 重用这个消息类型
-          payload: {
-            id: currentClient.id,
-            natType: currentClient.natType,
-          },
-        })
-        break
-      }
-      default:
-
+      default:{
         console.log(`Unknown message type from ${currentClient.id}: ${message.type}`)
         ws.send(JSON.stringify({ type: 'error', payload: `Unknown message type: ${message.type}` }))
+      }
     }
   })
 
   ws.on('close', () => {
     // 清理该客户端的 WebRTC 测试连接
     const closingClient = clientsByWs.get(ws)
-    if (closingClient && webrtcTests.has(closingClient.id)) {
-      webrtcTests.get(closingClient.id)?.close()
-      webrtcTests.delete(closingClient.id)
-
+    if (closingClient) {
       console.log(`Cleaned up WebRTC test for disconnected client ${closingClient.id}`)
     }
     if (!closingClient)

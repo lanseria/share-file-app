@@ -164,13 +164,6 @@ function formatFileSize(bytes: number): string {
         <span>{{ rtcStatusInfo.text }}</span>
       </div>
 
-      <!-- NAT 类型显示 -->
-      <div v-if="user.natType && user.natType !== 'Unknown'" class="text-xs text-gray-500 mt-1 dark:text-gray-400">
-        <span class="font-semibold">NAT: </span>
-        <span v-if="user.natType === 'Detecting...'" class="animate-pulse">{{ user.natType }}</span>
-        <span v-else>{{ user.natType }}</span>
-      </div>
-
       <!-- !! 新增: 自己的卡片上显示 NAT 检测按钮 !! -->
       <button
         v-if="isSelf"

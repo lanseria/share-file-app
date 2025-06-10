@@ -101,11 +101,28 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
           const time = (performance.now() - (gatheringStartTime || 0)) / 1000
           iceCandidateHandler?.({ type: 'done', time })
         }
-        const connState = pc?.iceConnectionState
-        if (connState)
-          peerConnectionStates.set(peerId, connState)
-        if (connState === 'failed' || connState === 'disconnected' || connState === 'closed')
-          closePeerConnection(peerId)
+      }
+
+      // --- 【核心修复】 ---
+      // 监听真正的 P2P 连接状态变化。这才是更新 UI 的正确事件。
+      pc.oniceconnectionstatechange = () => {
+        const state = pc?.iceConnectionState
+        if (state) {
+          // eslint-disable-next-line no-console
+          console.log(`[RTC] ICE Connection state for ${peerId} changed: ${state}`)
+          peerConnectionStates.set(peerId, state)
+          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+            closePeerConnection(peerId)
+          }
+        }
+      }
+
+      // 监听由远端对等体创建的数据通道。这是解决单向连接的关键！
+      pc.ondatachannel = (event) => {
+        // eslint-disable-next-line no-console
+        console.log(`[RTC] Received data channel from ${peerId}`)
+        const channel = event.channel
+        setupDataChannel(peerId, channel) // 使用相同的设置函数
       }
 
       pc.onicecandidateerror = (event) => {
@@ -116,7 +133,7 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
           errorText: `Code ${event.errorCode}: ${event.errorText}`,
         })
       }
-      // ... (ondatachannel)
+
       peerConnections.set(peerId, pc)
     }
     return pc
@@ -140,32 +157,27 @@ export function useWebRtcManager(signalingSender: SignalingSender) {
     channel.onmessage = event => handleDataChannelMessage(peerId, event.data)
   }
 
+  // 将 initiatePeerConnection 重构为更明确的函数
   async function initiatePeerConnection(peerId: string, configuration: RTCConfiguration) {
-    const pc = getOrCreatePeerConnection(peerId, configuration) // 传递配置
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`[RTC] Manually initiating connection to ${peerId}`)
+      const pc = getOrCreatePeerConnection(peerId, configuration)
 
-    // 只有在没有数据通道时才创建
-    if (!dataChannels.has(peerId)) {
+      // 创建数据通道
       const channel = pc.createDataChannel('fileTransfer', { ordered: true })
       setupDataChannel(peerId, channel)
-    }
 
-    // 使用 onnegotiationneeded 自动处理 offer/answer 流程
-    pc.onnegotiationneeded = async () => {
-      try {
-        // eslint-disable-next-line no-console
-        console.log(`[RTC] Negotiation needed for ${peerId}, creating offer.`)
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        signalingSender('offer', { targetId: peerId, offer })
-      }
-      catch (e) {
-        console.error('Negotiation needed error:', e)
-      }
+      // 直接创建并发送 offer
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      signalingSender('offer', { targetId: peerId, offer })
     }
-    // 触发一下，以防万一
-    if (pc.signalingState !== 'stable')
-      pc.onnegotiationneeded(new Event('negotiationneeded'))
+    catch (e) {
+      console.error(`[RTC] Error initiating connection to ${peerId}:`, e)
+    }
   }
+
   function sendFile(peerId: string, file: File) {
     const dataChannel = dataChannels.get(peerId)
     if (!dataChannel || dataChannel.readyState !== 'open') {

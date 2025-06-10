@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// app/components/IceDebug/index.vue
 import IceCandidateLog from './IceCandidateLog.vue'
 import IceServerConfig from './IceServerConfig.vue'
 

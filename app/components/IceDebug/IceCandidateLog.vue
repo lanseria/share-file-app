@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// app/components/IceDebug/IceCandidateLog.vue
 interface Props {
   logEntries: IceCandidateLogEntry[]
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// app/components/IceDebug/IceServerConfig.vue
 const props = defineProps<{
   modelValue: RTCIceServer[]
   iceTransportPolicy: 'all' | 'relay'

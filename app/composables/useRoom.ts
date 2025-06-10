@@ -3,7 +3,6 @@ export interface User {
   id: string
   name: string
   avatar: string
-  natType?: string // 可选的 natType 字段
 }
 // 扩展 User 接口，包含连接状态
 
@@ -170,7 +169,6 @@ export function useRoom(roomId: string) {
             id: rawUser.id,
             name: rawUser.name,
             avatar: rawUser.avatar,
-            natType: rawUser.natType || 'Unknown', // 如果服务器没有提供，则默认为 Detecting
           }
 
           const existingUserIndex = usersInRoom.value.findIndex(u => u.id === user.id)
@@ -247,18 +245,6 @@ export function useRoom(roomId: string) {
         rtc.closeDataChannel(peerId)
         break
       }
-      // 新增 case
-      case 'nat_type_info': {
-        const userId = message.payload.id || message.payload.senderId
-        const user = usersInRoom.value.find(u => u.id === userId)
-        if (user) {
-          // 直接更新用户的 natType 属性，Vue 的响应式系统会处理 UI 更新
-          user.natType = message.payload.natType
-          // eslint-disable-next-line no-console
-          console.log(`Updated NAT type for ${user.name} via broadcast: ${user.natType}`)
-        }
-        break
-      }
     }
   }
   // 将 WebSocket 的 onMessage 指向我们的处理器
@@ -321,26 +307,11 @@ export function useRoom(roomId: string) {
       }
     })
   }
-
   // -- 新的 NAT 检测触发方法 --
-  async function manualDetectNat() {
-    const self = usersInRoom.value.find(u => u.id === myClientId.value)
-    if (self)
-      self.natType = 'Detecting...'
-
-    try {
-      // 直接调用 store 的方法！
-      const natType = await wsStore.testConnectivity()
-      console.log('NAT detection process finished. Result:', natType)
-      // 同样，不需要手动更新状态，等待服务器广播即可
-    }
-    catch (error) {
-      console.error('Failed to detect NAT type:', error)
-      if (self)
-        self.natType = 'Failed'
-    }
+  function manualDetectNat() {
+    // 直接打开一个新标签页到指定的网站
+    window.open('https://checkmynat.com', '_blank')
   }
-
   function leave() {
     wsStore.disconnect() // 这会触发 onclose，并清理所有状态
   }
