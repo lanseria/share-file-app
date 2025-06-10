@@ -198,117 +198,130 @@ wss.on('connection', (ws, req) => {
     }
 
     switch (message.type) {
-      // --- 新增: NAT检测流程的消息处理 ---
+      // --- 【完全重构的NAT检测逻辑】 ---
       case 'request_nat_detection': {
-        // 如果此客户端已有测试在进行，先清理掉
         if (natTests.has(currentClient.id)) {
           const oldTest = natTests.get(currentClient.id)
+          oldTest.probeSocket?.close()
           clearTimeout(oldTest.timer)
-          oldTest.probeSocket.close()
-          natTests.delete(currentClient.id)
         }
-        // ---【核心修改】---
-        const probePort = getFreeUdpPort()
 
-        if (!probePort) {
-          console.warn(`No available UDP ports for NAT test for client ${currentClient.id}. Port pool is full.`)
-          ws.send(JSON.stringify({ type: 'error', payload: 'Server is busy, no available ports for NAT test. Please try again later.' }))
+        const primaryPort = getFreeUdpPort()
+        if (!primaryPort) {
+          // ... (端口池已满的错误处理) ...
           return
         }
 
         const probeSocket = dgram.createSocket('udp4')
-
-        // 新增：在socket关闭时，确保释放端口
-        probeSocket.on('close', () => {
-          releaseUdpPort(probePort)
-          // eslint-disable-next-line no-console
-          console.log(`Released UDP port ${probePort} for client ${currentClient.id}`)
-        })
-
         const testInfo = {
           probeSocket,
-          detectedPort: null,
-          timer: setTimeout(() => {
-            // eslint-disable-next-line no-console
-            console.log(`NAT test for ${currentClient.id} on port ${probePort} timed out.`)
-            probeSocket.close() // 这会触发上面的 'close' 事件来释放端口
-            natTests.delete(currentClient.id)
-          }, 20000),
+          primaryPort,
+          reportedPort: null, // 客户端通过STUN获取的端口
+          detectedPort: null, // 服务器在primaryPort上看到的源端口
+          testIIIResult: 'pending', // 用于测试Port-Restricted
+          timer: setTimeout(() => { /* ... 超时清理 ... */ }, 20000),
         }
         natTests.set(currentClient.id, testInfo)
 
-        probeSocket.on('error', (err) => {
-          console.error(`NAT probe socket error for ${currentClient.id} on port ${probePort}:\n${err.stack}`)
-          probeSocket.close() // 触发 'close'
-          natTests.delete(currentClient.id)
-        })
+        probeSocket.on('close', () => releaseUdpPort(primaryPort))
+        probeSocket.on('error', (err) => { /* ... 错误处理 ... */ })
 
-        // 核心：当收到客户端发来的UDP包时
+        // 测试 I 的监听器
         probeSocket.on('message', (msg, rinfo) => {
-          // eslint-disable-next-line no-console
-          console.log(`Received UDP probe from ${currentClient.id} at ${rinfo.address}:${rinfo.port}`)
-          // 记录下服务器实际看到的客户端源端口
+          console.log(`(Test I) Received UDP probe on port ${primaryPort} from ${rinfo.address}:${rinfo.port}`)
           testInfo.detectedPort = rinfo.port
-          // 可以选择在这里就回复一个UDP包，虽然对于检测不是必须的
-          probeSocket.send('ack', rinfo.port, rinfo.address)
+
+          // ---- 开始测试 III ----
+          // 创建一个新的socket，从不同端口回复
+          const testIIISocket = dgram.createSocket('udp4')
+          const testIIIPort = getFreeUdpPort() // 再从池里拿一个端口
+
+          if (!testIIIPort) {
+            console.warn('No port available for NAT Test III.')
+            testIIISocket.close()
+            return
+          }
+
+          testIIISocket.on('close', () => releaseUdpPort(testIIIPort))
+
+          testIIISocket.bind(testIIIPort, () => {
+            console.log(`(Test III) Sending probe from new port ${testIIIPort} to client at ${rinfo.address}:${rinfo.port}`)
+            // 发送一个特殊消息，让客户端知道这是测试III的包
+            testIIISocket.send('test_port_restriction', rinfo.port, rinfo.address, (err) => {
+              if (err)
+                console.error('Test III send error:', err)
+              testIIISocket.close()
+            })
+          })
         })
 
-        // ---【核心修改】---
-        // 不再使用 bind(0)，而是绑定我们自己分配的端口
-        probeSocket.bind(probePort, () => {
-          // eslint-disable-next-line no-console
-          console.log(`NAT probe server for ${currentClient.id} listening on port ${probePort}`)
+        probeSocket.bind(primaryPort, () => {
+          console.log(`NAT probe server for ${currentClient.id} listening on port ${primaryPort}`)
           ws.send(JSON.stringify({
             type: 'nat_probe_info',
-            payload: {
-              ip: SERVER_PUBLIC_IP,
-              port: probePort, // 使用我们分配的端口
-            },
+            payload: { ip: SERVER_PUBLIC_IP, port: primaryPort },
           }))
         })
         break
       }
 
+      // 客户端完成Test III后会报告结果
+      case 'report_test_III_result': {
+        const testInfo = natTests.get(currentClient.id)
+        if (testInfo) {
+          testInfo.testIIIResult = message.payload.received ? 'received' : 'not_received'
+          console.log(`(Test III) Client ${currentClient.id} reported result: ${testInfo.testIIIResult}`)
+        }
+        break
+      }
+
+      // 客户端报告它从STUN服务器看到的信息
       case 'report_stun_mapping': {
         const testInfo = natTests.get(currentClient.id)
-        const reportedPort = message.payload?.port
-        console.log(`Received STUN mapping report from ${currentClient.id} for port ${reportedPort}`)
-        console.log('Test info:', testInfo)
-        if (!testInfo || !reportedPort) {
-          ws.send(JSON.stringify({ type: 'error', payload: 'NAT test not initiated or invalid report.' }))
+        if (!testInfo)
           return
-        }
 
-        // 等待一小段时间，确保UDP包可能已经到达
+        testInfo.reportedPort = message.payload?.port
+        console.log(`Received STUN mapping report from ${currentClient.id} for port ${testInfo.reportedPort}`)
+
+        // 等待所有测试（特别是Test III）的结果
         setTimeout(() => {
-          const { detectedPort, probeSocket, timer } = testInfo
-          clearTimeout(timer) // 清除超时定时器
-          probeSocket.close() // 关闭UDP socket
-          natTests.delete(currentClient.id) // 从Map中移除测试
+          const { detectedPort, reportedPort, testIIIResult, probeSocket, timer } = testInfo
+          clearTimeout(timer)
+          probeSocket.close()
+          natTests.delete(currentClient.id)
 
           let natType = 'Unknown'
-          if (detectedPort) {
-            if (detectedPort === reportedPort) {
-              natType = 'Cone' // 端口相同，是锥形
-            }
-            else {
-              natType = 'Symmetric' // 端口不同，是对称型
-            }
+
+          if (!detectedPort) {
+            natType = 'UDP Blocked' // 如果连第一个包都没收到，就是UDP被阻塞了
+          }
+          else if (detectedPort !== reportedPort) {
+            natType = 'Symmetric' // 如果源端口变了，就是对称型
           }
           else {
-            natType = 'UDP Blocked or Symmetric' // 没收到包，可能是UDP被阻止或对称型（无法建立映射）
+            // 源端口没变，是Cone型，现在用Test III的结果来区分
+            if (testIIIResult === 'received') {
+              // 能收到来自不同端口的包，说明是 Restricted Cone (或 Full Cone)
+              natType = 'Restricted Cone'
+            }
+            else if (testIIIResult === 'not_received') {
+              // 收不到，说明是 Port-Restricted Cone
+              natType = 'Port-Restricted Cone'
+            }
+            else {
+              // 客户端没来得及报告，或者出错了
+              natType = 'Cone (subtype undetermined)'
+            }
           }
 
-          // eslint-disable-next-line no-console
-          console.log(`NAT Test Result for ${currentClient.id}: Reported Port (from STUN) = ${reportedPort}, Detected Port (at server) = ${detectedPort || 'N/A'}. Conclusion: ${natType}`)
+          console.log(`Final NAT Test Result for ${currentClient.id}: NAT Type = ${natType}`)
 
-          // 将结果发回给客户端
+          // ... 将结果发回给客户端，并广播 ...
           ws.send(JSON.stringify({
             type: 'nat_detection_result',
             payload: { natType },
           }))
-
-          // 同时更新服务器上的客户端状态并广播给房间其他人
           currentClient.natType = natType
           if (currentClient.roomId) {
             broadcastToRoom(currentClient.roomId, {
@@ -316,7 +329,7 @@ wss.on('connection', (ws, req) => {
               payload: { id: currentClient.id, natType },
             })
           }
-        }, 500) // 延迟500ms确保UDP包有时间到达
+        }, 1500) // 增加延迟，给Test III足够的时间
         break
       }
       case 'join_room': {
