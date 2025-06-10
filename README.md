@@ -116,23 +116,19 @@
     # 运行新容器
     docker run -d \
       --name signaling-server \
-      -p 8080:8080/tcp \
-      -p 40000-40100:40000-40100/udp \
-      -e PORT=8080 \
-      -e SERVER_PUBLIC_IP="YOUR_SERVER_PUBLIC_IP" \
+      -p 3000:3000/tcp \
+      -e PORT=3000 \
       --restart unless-stopped \
       my-signaling-server:latest
     ```
 
     **参数说明**:
 
-    - `-p 8080:8080/tcp`: 将主机的 8080 TCP 端口映射到容器的 8080 端口。
-    - `-p 40000-40100:40000-40100/udp`: **(关键)** 将主机的 UDP 端口范围映射到容器，用于 WebRTC 数据传输。请确保您的服务器防火墙已放行此 UDP 范围。
-    - `-e PORT=8080`: 告诉容器内的应用监听 8080 端口。您可以修改此值和 `-p` 参数来使用不同端口。
-    - `-e SERVER_PUBLIC_IP="YOUR_SERVER_PUBLIC_IP"`: **(重要)** 设置服务器的公网 IP 地址。这对于某些 NAT 穿透场景（如配置 TURN 服务器）至关重要。请替换 `"YOUR_SERVER_PUBLIC_IP"` 为您的实际 IP。
+    - `-p 3000:3000/tcp`: 将主机的 3000 TCP 端口映射到容器的 3000 端口。
+    - `-e PORT=3000`: 告诉容器内的应用监听 3000 端口。您可以修改此值和 `-p` 参数来使用不同端口。
     - `--restart unless-stopped`: 确保容器在服务器重启后能自动启动。
 
-    部署成功后，您的信令服务器地址为 `ws://YOUR_SERVER_PUBLIC_IP:8080`。
+    部署成功后，您的信令服务器地址为 `ws://YOUR_SERVER_PUBLIC_IP:3000`。
 
 ### 部署前端应用
 
