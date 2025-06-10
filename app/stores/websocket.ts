@@ -1,129 +1,17 @@
+/* eslint-disable no-console */
 // stores/websocket.ts
 
 import { defineStore } from 'pinia'
 
-// NatTypeResult 类型现在可以更精确了
-export type NatTypeResult =
-  | 'Full Cone'
-  | 'Restricted Cone'
-  | 'Port-Restricted Cone'
-  | 'Symmetric'
-  | 'UDP Blocked'
-  | 'Unknown'
-  | 'Cone (subtype undetermined)' // 新增一个备用状态
-
-function getStunMapping(): Promise<{ address: string, port: number } | null> {
-  return new Promise((resolve, reject) => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:74.125.250.129:19302' }],
-    })
-    const timeoutId = setTimeout(() => { pc.close(); reject(new Error('STUN mapping timeout')) }, 5000)
-    pc.onicecandidate = (e) => {
-      if (e.candidate && e.candidate.type === 'srflx') {
-        clearTimeout(timeoutId)
-        pc.close()
-        resolve({ address: e.candidate.address!, port: e.candidate.port! })
-      }
-    }
-    pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timeoutId); pc.close(); resolve(null) } }
-    pc.onicecandidateerror = (e) => { clearTimeout(timeoutId); pc.close(); reject(e) }
-    try { pc.addTransceiver('audio', { direction: 'inactive' }) }
-    catch (e) { /* old browsers */ }
-    pc.createDataChannel('nat-test')
-    pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(reject)
-  })
+// 定义更具描述性的结果类型
+export interface ConnectivityResult {
+  testSuccess: boolean
+  message: string
+  localCandidateType?: string
+  remoteCandidateType?: string
+  p2pConnected: boolean
 }
 
-function sendUdpProbe(ip: string, port: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const pc = new RTCPeerConnection()
-    const timeoutId = setTimeout(() => { pc.close(); reject(new Error('UDP probe timeout')) }, 5000)
-
-    pc.onicecandidate = (e) => {
-      if (!e.candidate) { clearTimeout(timeoutId); pc.close(); setTimeout(resolve, 100) }
-    }
-
-    pc.createDataChannel('probe')
-
-    pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
-      .then(() => {
-        const localSdp = pc.localDescription?.sdp
-        if (!localSdp)
-          throw new Error('Local SDP is not available.')
-
-        const fingerprintLine = localSdp.split('\r\n').find(line => line.startsWith('a=fingerprint:'))
-        if (!fingerprintLine)
-          throw new Error('DTLS fingerprint not found in local SDP.')
-
-        const remoteSdp = `${[
-          'v=0',
-          `o=- ${Date.now()} ${Date.now()} IN IP4 127.0.0.1`,
-          's=-',
-          't=0 0',
-          `m=application ${port} UDP/DTLS/SCTP webrtc-datachannel`,
-          `c=IN IP4 ${ip}`,
-          'a=mid:0',
-          'a=sctp-port:5000',
-          fingerprintLine,
-          'a=ice-ufrag:dummyufraglongenough',
-          'a=ice-pwd:dummypasswordlongenoughtobevalid',
-          // --- 关键改动在这里 ---
-          'a=setup:active', // <-- 将 actpass 改为 active
-          'a=sendrecv',
-        ].join('\r\n')}\r\n`
-
-        console.log('Constructed Remote SDP for probe (v4 - final):', remoteSdp)
-
-        return pc.setRemoteDescription({ type: 'answer', sdp: remoteSdp })
-      })
-      .catch((err) => {
-        clearTimeout(timeoutId)
-        pc.close()
-        reject(err)
-      })
-  })
-}
-// --- 【新增】用于Test III的辅助函数 ---
-// 这个函数会创建一个数据通道，并监听它是否收到特定消息
-function setupTestIIIListener(
-  reportResult: (received: boolean) => void,
-): RTCPeerConnection {
-  const pc = new RTCPeerConnection()
-  const testChannel = pc.createDataChannel('test-iii-listener')
-  let receivedTestIIIPacket = false
-
-  testChannel.onmessage = (event) => {
-    if (event.data === 'test_port_restriction') {
-      console.log('Received Test III packet from server!')
-      receivedTestIIIPacket = true
-      // 收到包后立即报告，并关闭连接
-      reportResult(true)
-      pc.close()
-    }
-  }
-
-  // 设置一个定时器，如果在一定时间内没收到包，就报告失败
-  const testIIITimeout = setTimeout(() => {
-    if (!receivedTestIIIPacket) {
-      console.log('Test III packet did not arrive in time.')
-      reportResult(false)
-      pc.close()
-    }
-  }, 3000) // 等待3秒
-
-  // 确保连接关闭时清除定时器
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-      clearTimeout(testIIITimeout)
-    }
-  }
-
-  // 必须创建offer来启动ICE，但我们不需要发送它
-  pc.createOffer().then(offer => pc.setLocalDescription(offer))
-
-  return pc
-}
 // --- 2. Pinia Store 定义 ---
 export const useWebSocketStore = defineStore('websocket', () => {
   const ws = ref<WebSocket | null>(null)
@@ -164,86 +52,139 @@ export const useWebSocketStore = defineStore('websocket', () => {
     messageHandlers.add(handler)
     return () => messageHandlers.delete(handler)
   }
-  async function detectNatType(): Promise<NatTypeResult> {
-  // 检查 WebSocket 连接状态
+  /**
+   * Performs a WebRTC connectivity test with the server.
+   * The server acts as a peer to establish a connection.
+   * The result indicates whether a P2P-like connection can be established.
+   */
+  async function testConnectivity(): Promise<ConnectivityResult> {
     if (!isConnected.value || !ws.value) {
       throw new Error('WebSocket is not connected.')
     }
 
-    // --- 为 Test III 设置监听器 ---
-    let testIIIPC: RTCPeerConnection | null = null
-    const reportTestIII = (received: boolean) => {
-    // 确保只报告一次，并使用 store 的 sendMessage
-      if (testIIIPC && testIIIPC.connectionState !== 'closed') {
-        sendMessage('report_test_III_result', { received })
-        testIIIPC.close()
-        testIIIPC = null // 清理引用
-      }
-    }
-    testIIIPC = setupTestIIIListener(reportTestIII)
-
-    console.log('Requesting NAT detection from server...')
-    // 使用 store 的 sendMessage 发送请求
-    sendMessage('request_nat_detection', {})
-
     return new Promise((resolve, reject) => {
-    // 定义消息处理器
-      const handleMessage = (message: any) => {
-        if (message.type === 'nat_probe_info') {
-        // 这个异步流程保持不变
-          (async () => {
-            try {
-              const stunMapping = await getStunMapping()
-              if (!stunMapping)
-                throw new Error('Could not get mapping from public STUN server.')
+      let pc: RTCPeerConnection | null = new RTCPeerConnection({
+        iceServers: [
+          // 使用公共 STUN 服务器来帮助客户端发现自己的公网映射
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      })
 
-              await sendUdpProbe(message.payload.ip, message.payload.port)
+      const dc = pc.createDataChannel('connectivity-test')
+      let testFinished = false
 
-              // 使用 store 的 sendMessage 报告 STUN 结果
-              sendMessage('report_stun_mapping', { port: stunMapping.port })
-            }
-            catch (error) {
-              cleanupAndReject(error as Error)
-            }
-          })()
+      // 5. 设置超时
+      const timeoutId = setTimeout(() => {
+        cleanupAndResolve({ testSuccess: false, message: 'Connectivity test timed out. UDP is likely blocked or severely restricted.', p2pConnected: false })
+      }, 15000) // 15秒超时
+      const removeHandler = onMessage(handleMessage)
+      function cleanupAndResolve(result: ConnectivityResult) {
+        if (testFinished)
+          return
+        testFinished = true
+
+        clearTimeout(timeoutId)
+        removeHandler()
+        if (pc) {
+          pc.close()
+          pc = null
         }
-        else if (message.type === 'nat_detection_result') {
-          // 收到最终结果
-          cleanupAndResolve(message.payload.natType)
+        resolve(result)
+      }
+
+      const cleanupAndReject = (error: Error) => {
+        if (testFinished)
+          return
+        testFinished = true
+
+        clearTimeout(timeoutId)
+        removeHandler()
+        if (pc) {
+          pc.close()
+          pc = null
         }
-        else if (message.type === 'error' && message.payload?.includes('NAT test')) {
-        // 收到服务器关于NAT测试的错误
+        reject(error)
+      }
+
+      // 1. 监听 ICE candidate 并通过 WebSocket 发送
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendMessage('webrtc_test_candidate', { candidate: event.candidate.toJSON() })
+        }
+      }
+
+      // 2. 监听连接状态变化，这是判断结果的关键
+      pc.oniceconnectionstatechange = async () => {
+        if (!pc)
+          return
+
+        console.log(`ICE Connection State: ${pc.iceConnectionState}`)
+
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          // 连接成功！现在分析连接类型
+          try {
+            const stats = await pc.getStats()
+            let selectedPair: any
+            stats.forEach((report) => {
+              if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                selectedPair = report
+              }
+            })
+
+            if (selectedPair) {
+              const localCand = stats.get(selectedPair.localCandidateId)
+              const remoteCand = stats.get(selectedPair.remoteCandidateId)
+
+              const result: ConnectivityResult = {
+                testSuccess: true,
+                message: `Successfully connected! Local: ${localCand.candidateType}, Remote: ${remoteCand.candidateType}`,
+                localCandidateType: localCand.candidateType, // 'host', 'srflx', 'prflx', 'relay'
+                remoteCandidateType: remoteCand.candidateType, // 'host', 'srflx', 'prflx', 'relay'
+                p2pConnected: remoteCand.candidateType !== 'relay', // 如果远端不是中继，通常认为是P2P
+              }
+              cleanupAndResolve(result)
+            }
+            else {
+              // 理论上 'connected' 状态应该能找到成功的 pair, 这是备用情况
+              cleanupAndResolve({ testSuccess: true, message: 'Connected, but failed to get stats.', p2pConnected: true })
+            }
+          }
+          // eslint-disable-next-line unused-imports/no-unused-vars
+          catch (error) {
+            cleanupAndReject(new Error('Failed to get connection stats.'))
+          }
+        }
+        else if (pc.iceConnectionState === 'failed') {
+          cleanupAndResolve({ testSuccess: false, message: 'WebRTC connection failed. UDP might be blocked or NAT is too restrictive.', p2pConnected: false })
+        }
+      }
+
+      // 3. 监听WebSocket消息，接收服务器的answer和candidate
+      function handleMessage(message: any) {
+        if (!pc)
+          return
+
+        if (message.type === 'webrtc_test_answer') {
+          pc.setRemoteDescription(new RTCSessionDescription(message.payload.answer))
+            .catch(cleanupAndReject)
+        }
+        else if (message.type === 'webrtc_test_candidate') {
+          pc.addIceCandidate(new RTCIceCandidate(message.payload))
+            .catch(e => console.warn('Error adding ICE candidate', e))
+        }
+        else if (message.type === 'error' && message.payload?.includes('WebRTC')) {
           cleanupAndReject(new Error(message.payload))
         }
       }
 
-      // 使用 store 的 onMessage 来注册处理器
-      const removeHandler = onMessage(handleMessage)
-
-      // 设置整个流程的超时
-      const timeoutId = setTimeout(() => {
-        cleanupAndReject(new Error('NAT detection timed out.'))
-      }, 25000)
-
-      // 统一的清理和回调函数
-      function cleanup() {
-        clearTimeout(timeoutId)
-        removeHandler() // 从 onMessage 中移除处理器
-        if (testIIIPC) {
-          testIIIPC.close()
-          testIIIPC = null
-        }
-      }
-
-      function cleanupAndResolve(value: NatTypeResult) {
-        cleanup()
-        resolve(value)
-      }
-
-      function cleanupAndReject(reason: Error) {
-        cleanup()
-        reject(reason)
-      }
+      // 4. 创建并发送 offer
+      pc.createOffer()
+        .then(offer => pc!.setLocalDescription(offer))
+        .then(() => {
+          sendMessage('request_webrtc_test_offer', { offer: pc!.localDescription!.toJSON() })
+        })
+        .catch(cleanupAndReject)
     })
   }
 
@@ -259,6 +200,6 @@ export const useWebSocketStore = defineStore('websocket', () => {
     disconnect,
     sendMessage,
     onMessage,
-    detectNatType, // <-- 导出 NAT 检测方法
+    testConnectivity, // <-- 导出 NAT 检测方法
   }
 })

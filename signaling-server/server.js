@@ -1,46 +1,18 @@
+/* eslint-disable no-console */
 // signaling-server/server.js
-import dgram from 'node:dgram' // <--- 新增: 引入dgram模块用于UDP操作
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
+// 引入 werift 和其他必要的模块
+import { RTCPeerConnection, RTCSessionDescription } from 'werift' // <--- 核心变化
 import { WebSocket, WebSocketServer } from 'ws'
 
-// --- 新增：定义和管理UDP端口池 ---
-const UDP_PORT_START = 40000
-const UDP_PORT_END = 40100 // 我们只用101个端口，足够同时支持101个NAT检测
-const usedUdpPorts = new Set()
-
-// eslint-disable-next-line no-console
-console.log(`Configured UDP port range for NAT tests: ${UDP_PORT_START}-${UDP_PORT_END}`)
-
-function getFreeUdpPort() {
-  for (let port = UDP_PORT_START; port <= UDP_PORT_END; port++) {
-    if (!usedUdpPorts.has(port)) {
-      usedUdpPorts.add(port)
-      return port
-    }
-  }
-  return null // 返回 null 表示端口池已满
-}
-
-function releaseUdpPort(port) {
-  if (port) {
-    usedUdpPorts.delete(port)
-  }
-}
-
-// --- 假设你的服务器有一个可从公网访问的IP地址 ---
-// 在生产环境中，你应该从环境变量或配置文件中读取
-// 如果你的服务器在NAT后面，你需要配置端口转发，并在这里填写真实的公网IP
 const SERVER_PUBLIC_IP = env.SERVER_PUBLIC_IP || '127.0.0.1'
-// eslint-disable-next-line no-console
 console.log(`Server public IP for NAT tests is configured as: ${SERVER_PUBLIC_IP}`)
-
 const PORT = env.PORT || 8080
 const HEARTBEAT_INTERVAL = 30000 // 30秒
+
 const wss = new WebSocketServer({ port: PORT })
-// --- 新增: 定义允许的来源 (白名单) ---
-// 注意: WebSocket 的 Origin 头可能不包含端口号，也可能是 null (例如非浏览器客户端)
-// 对于浏览器，它通常是 `http://hostname:port` 或 `https://hostname:port`
+
 const ALLOWED_ORIGINS = [
   'http://localhost:3000', // Nuxt 开发环境
   'http://127.0.0.1:3000', // Nuxt 开发环境的另一种访问方式
@@ -57,12 +29,10 @@ const ALLOWED_ORIGINS = [
 const rooms = new Map()
 const clientsByWs = new Map() // 重命名 clients 为 clientsByWs 以明确其键
 const clientsById = new Map() // 新增 Map，用于通过 ID 查找
-// --- 新增: 用于管理NAT检测会话 ---
-const natTests = new Map() // key: clientId, value: { probeSocket, detectedPort, timer }
+// 用于存储每个客户端的 WebRTC 测试连接
+const webrtcTests = new Map() // key: clientId, value: RTCPeerConnection
 
-// eslint-disable-next-line no-console
 console.log(`Signaling server started on ws://localhost:${PORT}`)
-// eslint-disable-next-line no-console
 console.log('Allowed origins:', ALLOWED_ORIGINS.join(', '))
 
 // 预设的头像和名称，用于随机分配
@@ -107,7 +77,6 @@ wss.on('connection', (ws, req) => {
   const origin = req.headers.origin
   const clientIp = req.socket.remoteAddress // 获取客户端 IP
 
-  // eslint-disable-next-line no-console
   console.log(`New connection attempt from origin: ${origin}, IP: ${clientIp}`)
 
   // 1. 检查 Origin 头是否在白名单中
@@ -125,7 +94,6 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  // eslint-disable-next-line no-console
   console.log(`Connection accepted from origin: ${origin}`)
   // 为每个连接生成一个唯一的客户端 ID
   const clientId = uuidv4()
@@ -136,12 +104,10 @@ wss.on('connection', (ws, req) => {
   clientsByWs.set(ws, clientWrapper)
   clientsById.set(clientId, clientWrapper) // 同时存入新的 Map
 
-  // eslint-disable-next-line no-console
   console.log(`Client ${clientId} (${clientWrapper.name}) connected. Total clients: ${clientsByWs.size}`)
 
   clientWrapper.isAlive = true // 为每个客户端增加一个存活标记
   ws.on('pong', () => {
-    // eslint-disable-next-line no-console
     console.log(`Pong received from ${clientWrapper.id}`)
     clientWrapper.isAlive = true
   })
@@ -162,7 +128,6 @@ wss.on('connection', (ws, req) => {
     if (!currentClient)
       return
 
-    // eslint-disable-next-line no-console
     console.log(`Received message from ${currentClient.id} (${currentClient.name}) in room ${currentClient.roomId || 'N/A'}:`, message)
 
     // 新增: 定义一个函数来处理需要转发的消息
@@ -187,7 +152,7 @@ wss.on('connection', (ws, req) => {
           },
         }
         targetClient.ws.send(JSON.stringify(messageToSend))
-        // eslint-disable-next-line no-console
+
         console.log(`Forwarded ${message.type} from ${currentClient.id} to ${targetId}`)
       }
       else {
@@ -198,140 +163,104 @@ wss.on('connection', (ws, req) => {
     }
 
     switch (message.type) {
-      // --- 【完全重构的NAT检测逻辑】 ---
-      case 'request_nat_detection': {
-        if (natTests.has(currentClient.id)) {
-          const oldTest = natTests.get(currentClient.id)
-          oldTest.probeSocket?.close()
-          clearTimeout(oldTest.timer)
-        }
-
-        const primaryPort = getFreeUdpPort()
-        if (!primaryPort) {
-          // ... (端口池已满的错误处理) ...
+      // --- 【新的 WebRTC 测试逻辑】 ---
+      case 'request_webrtc_test_offer': {
+        const { offer } = message.payload
+        if (!offer) {
+          ws.send(JSON.stringify({ type: 'error', payload: 'Offer not provided for WebRTC test' }))
           return
         }
 
-        const probeSocket = dgram.createSocket('udp4')
-        const testInfo = {
-          probeSocket,
-          primaryPort,
-          reportedPort: null, // 客户端通过STUN获取的端口
-          detectedPort: null, // 服务器在primaryPort上看到的源端口
-          testIIIResult: 'pending', // 用于测试Port-Restricted
-          timer: setTimeout(() => { /* ... 超时清理 ... */ }, 20000),
+        // 如果之前有测试，先清理掉
+        if (webrtcTests.has(currentClient.id)) {
+          webrtcTests.get(currentClient.id)?.close()
         }
-        natTests.set(currentClient.id, testInfo)
 
-        probeSocket.on('close', () => releaseUdpPort(primaryPort))
-        probeSocket.on('error', (err) => { /* ... 错误处理 ... */ })
+        // **核心：创建服务器端的 RTCPeerConnection**
+        const peerConnection = new RTCPeerConnection({
+          // werift 允许我们强制使用特定的公网IP作为 ICE candidate
+          // 这对于部署在NAT后的服务器至关重要
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' }, // 也可以用STUN服务器来发现公网IP
+          ],
+          // 如果你的服务器有公网IP，但 werift 没能正确识别，可以用这个选项强制
+          iceCandidatePool: {
+            // portMin: 40000, portMax: 40100 // 可以像以前一样限制端口范围
+          },
+        })
+        webrtcTests.set(currentClient.id, peerConnection)
 
-        // 测试 I 的监听器
-        probeSocket.on('message', (msg, rinfo) => {
-          console.log(`(Test I) Received UDP probe on port ${primaryPort} from ${rinfo.address}:${rinfo.port}`)
-          testInfo.detectedPort = rinfo.port
+        console.log(`[${currentClient.id}] Created PeerConnection for WebRTC test.`)
 
-          // ---- 开始测试 III ----
-          // 创建一个新的socket，从不同端口回复
-          const testIIISocket = dgram.createSocket('udp4')
-          const testIIIPort = getFreeUdpPort() // 再从池里拿一个端口
-
-          if (!testIIIPort) {
-            console.warn('No port available for NAT Test III.')
-            testIIISocket.close()
-            return
+        // 监听ICE candidate，并将其发送给客户端
+        peerConnection.onicecandidate.subscribe((candidate) => {
+          if (candidate) {
+            console.log(`[${currentClient.id}] Forwarding server candidate to client.`)
+            ws.send(JSON.stringify({
+              type: 'webrtc_test_candidate',
+              payload: candidate.toJSON(),
+            }))
           }
-
-          testIIISocket.on('close', () => releaseUdpPort(testIIIPort))
-
-          testIIISocket.bind(testIIIPort, () => {
-            console.log(`(Test III) Sending probe from new port ${testIIIPort} to client at ${rinfo.address}:${rinfo.port}`)
-            // 发送一个特殊消息，让客户端知道这是测试III的包
-            testIIISocket.send('test_port_restriction', rinfo.port, rinfo.address, (err) => {
-              if (err)
-                console.error('Test III send error:', err)
-              testIIISocket.close()
-            })
-          })
         })
 
-        probeSocket.bind(primaryPort, () => {
-          console.log(`NAT probe server for ${currentClient.id} listening on port ${primaryPort}`)
-          ws.send(JSON.stringify({
-            type: 'nat_probe_info',
-            payload: { ip: SERVER_PUBLIC_IP, port: primaryPort },
-          }))
+        // 监听连接状态变化
+        peerConnection.oniceconnectionstatechange.subscribe((state) => {
+          console.log(`[${currentClient.id}] PeerConnection state changed: ${state}`)
+          // 我们可以在这里获取统计信息，但更简单的是让客户端报告
+          if (state === 'failed' || state === 'closed') {
+            webrtcTests.delete(currentClient.id)
+          }
         })
+
+        // 创建一个数据通道，以完成连接建立
+        const dc = peerConnection.createDataChannel('test-channel')
+        dc.onopen = () => {
+          console.log(`[${currentClient.id}] Data channel opened!`)
+          dc.send('Hello from server!')
+        }
+        dc.onmessage = (msg) => {
+          console.log(`[${currentClient.id}] Message from client: ${msg}`)
+        }
+
+        // 设置远程 offer，并创建 answer
+        ;(async () => {
+          try {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer.type, offer.sdp))
+            const answer = await peerConnection.createAnswer()
+            await peerConnection.setLocalDescription(answer)
+
+            console.log(`[${currentClient.id}] Sending answer to client.`)
+            ws.send(JSON.stringify({
+              type: 'webrtc_test_answer',
+              payload: { answer: peerConnection.localDescription.toJSON() },
+            }))
+          }
+          catch (error) {
+            console.error(`[${currentClient.id}] Error handling WebRTC offer:`, error)
+            ws.send(JSON.stringify({ type: 'error', payload: `Server-side WebRTC error: ${error.message}` }))
+            peerConnection.close()
+            webrtcTests.delete(currentClient.id)
+          }
+        })()
+
         break
       }
 
-      // 客户端完成Test III后会报告结果
-      case 'report_test_III_result': {
-        const testInfo = natTests.get(currentClient.id)
-        if (testInfo) {
-          testInfo.testIIIResult = message.payload.received ? 'received' : 'not_received'
-          console.log(`(Test III) Client ${currentClient.id} reported result: ${testInfo.testIIIResult}`)
+      case 'webrtc_test_candidate': {
+        const { candidate } = message.payload
+        const peerConnection = webrtcTests.get(currentClient.id)
+        if (peerConnection && candidate) {
+          console.log(`[${currentClient.id}] Received client candidate, adding to PeerConnection.`)
+          try {
+            peerConnection.addIceCandidate(candidate)
+          }
+          catch (error) {
+            console.error(`[${currentClient.id}] Error adding ICE candidate:`, error)
+          }
         }
         break
       }
 
-      // 客户端报告它从STUN服务器看到的信息
-      case 'report_stun_mapping': {
-        const testInfo = natTests.get(currentClient.id)
-        if (!testInfo)
-          return
-
-        testInfo.reportedPort = message.payload?.port
-        console.log(`Received STUN mapping report from ${currentClient.id} for port ${testInfo.reportedPort}`)
-
-        // 等待所有测试（特别是Test III）的结果
-        setTimeout(() => {
-          const { detectedPort, reportedPort, testIIIResult, probeSocket, timer } = testInfo
-          clearTimeout(timer)
-          probeSocket.close()
-          natTests.delete(currentClient.id)
-
-          let natType = 'Unknown'
-
-          if (!detectedPort) {
-            natType = 'UDP Blocked' // 如果连第一个包都没收到，就是UDP被阻塞了
-          }
-          else if (detectedPort !== reportedPort) {
-            natType = 'Symmetric' // 如果源端口变了，就是对称型
-          }
-          else {
-            // 源端口没变，是Cone型，现在用Test III的结果来区分
-            if (testIIIResult === 'received') {
-              // 能收到来自不同端口的包，说明是 Restricted Cone (或 Full Cone)
-              natType = 'Restricted Cone'
-            }
-            else if (testIIIResult === 'not_received') {
-              // 收不到，说明是 Port-Restricted Cone
-              natType = 'Port-Restricted Cone'
-            }
-            else {
-              // 客户端没来得及报告，或者出错了
-              natType = 'Cone (subtype undetermined)'
-            }
-          }
-
-          console.log(`Final NAT Test Result for ${currentClient.id}: NAT Type = ${natType}`)
-
-          // ... 将结果发回给客户端，并广播 ...
-          ws.send(JSON.stringify({
-            type: 'nat_detection_result',
-            payload: { natType },
-          }))
-          currentClient.natType = natType
-          if (currentClient.roomId) {
-            broadcastToRoom(currentClient.roomId, {
-              type: 'nat_type_info',
-              payload: { id: currentClient.id, natType },
-            })
-          }
-        }, 1500) // 增加延迟，给Test III足够的时间
-        break
-      }
       case 'join_room': {
         const roomId = message.payload?.roomId
         if (!roomId || typeof roomId !== 'string') {
@@ -345,7 +274,7 @@ wss.on('connection', (ws, req) => {
           oldRoom?.delete(currentClient)
           if (oldRoom?.size === 0) {
             rooms.delete(currentClient.roomId)
-            // eslint-disable-next-line no-console
+
             console.log(`Room ${currentClient.roomId} is now empty and removed.`)
           }
           else {
@@ -380,7 +309,6 @@ wss.on('connection', (ws, req) => {
         // 2. 将新用户添加到房间
         room.add(currentClient)
 
-        // eslint-disable-next-line no-console
         console.log(`Client ${currentClient.id} (${currentClient.name}) joined room ${roomId}. Room size: ${room.size}`)
         ws.send(JSON.stringify({
           type: 'room_joined',
@@ -416,7 +344,6 @@ wss.on('connection', (ws, req) => {
           return
         }
 
-        // eslint-disable-next-line no-console
         console.log(`Broadcasting message from ${currentClient.id} in room ${currentClient.roomId}`)
         broadcastToRoom(currentClient.roomId, {
           type: 'room_message',
@@ -442,7 +369,7 @@ wss.on('connection', (ws, req) => {
 
         // 1. 更新服务器上该客户端的状态
         currentClient.natType = message.payload.natType
-        // eslint-disable-next-line no-console
+
         console.log(`Updated NAT type for ${currentClient.id} to ${currentClient.natType}`)
 
         // 2. 广播这个更新给房间内其他人
@@ -456,40 +383,38 @@ wss.on('connection', (ws, req) => {
         break
       }
       default:
-        // eslint-disable-next-line no-console
+
         console.log(`Unknown message type from ${currentClient.id}: ${message.type}`)
         ws.send(JSON.stringify({ type: 'error', payload: `Unknown message type: ${message.type}` }))
     }
   })
 
   ws.on('close', () => {
-    // --- 新增: 清理该客户端可能存在的NAT测试 ---
+    // 清理该客户端的 WebRTC 测试连接
     const closingClient = clientsByWs.get(ws)
-    if (closingClient && natTests.has(closingClient.id)) {
-      const test = natTests.get(closingClient.id)
-      clearTimeout(test.timer)
-      test.probeSocket.close()
-      natTests.delete(closingClient.id)
-      // eslint-disable-next-line no-console
-      console.log(`Cleaned up NAT test for disconnected client ${closingClient.id}`)
+    if (closingClient && webrtcTests.has(closingClient.id)) {
+      webrtcTests.get(closingClient.id)?.close()
+      webrtcTests.delete(closingClient.id)
+
+      console.log(`Cleaned up WebRTC test for disconnected client ${closingClient.id}`)
     }
     if (!closingClient)
       return
 
     clientsByWs.delete(ws)
     clientsById.delete(closingClient.id) // 从 ID Map 中也删除
-    // eslint-disable-next-line no-console
+
     console.log(`Client ${closingClient.id} (${closingClient.name}) disconnected. Total clients: ${clientsByWs.size}`)
 
     if (closingClient.roomId && rooms.has(closingClient.roomId)) {
       const room = rooms.get(closingClient.roomId)
       room?.delete(closingClient)
-      // eslint-disable-next-line no-console
+
       console.log(`Client ${closingClient.id} removed from room ${closingClient.roomId}. Room size: ${room?.size}`)
 
       if (room?.size === 0) {
         rooms.delete(closingClient.roomId)
-        // eslint-disable-next-line no-console
+
         console.log(`Room ${closingClient.roomId} is now empty and removed.`)
       }
       else {
@@ -518,7 +443,6 @@ const interval = setInterval(() => {
 
     client.isAlive = false // 假设它已经死了，等待 pong 来反证
     ws.ping(() => {
-      // eslint-disable-next-line no-console
       console.log(`Ping sent to ${client.id}`)
     })
   })

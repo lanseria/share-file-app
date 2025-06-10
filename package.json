@@ -37,6 +37,7 @@
     "uuid": "catalog:backend",
     "vue": "catalog:frontend",
     "vue-tsc": "catalog:dev",
+    "werift": "catalog:backend",
     "ws": "catalog:backend"
   },
   "resolutions": {
