@@ -12,14 +12,13 @@
 
 - **真正的 P2P 传输**: 文件不经过服务器中转，保护隐私，速度更快。
 - **多用户房间**: 创建一个房间，分享链接给多个朋友，即可实现多人互传。
--
 - **暗黑模式**: 自动或手动切换，适应不同环境。
 - **响应式设计**: 在桌面和移动设备上均有良好体验。
+- **随机身份**: 无需注册，进入房间即可获得一个可爱的随机头像和昵称。
 - **专业级调试工具**:
   - 动态配置 STUN/TURN 服务器。
   - 实时查看 ICE 候选者收集日志。
-  - 手动触发 NAT 类型检测，帮助诊断连接问题。
-- **随机身份**: 无需注册，进入房间即可获得一个可爱的随机头像和昵称。
+  - 集成外部 NAT 类型检测工具，方便用户一键跳转检查自身网络环境。
 
 ## 🚀 在线体验
 
@@ -100,31 +99,40 @@
 项目根目录下已包含一个 `Dockerfile` 用于构建信令服务器的 Docker 镜像。
 
 1.  **构建镜像**:
+    在项目根目录下运行：
 
     ```bash
     docker build -t my-signaling-server:latest .
     ```
 
 2.  **运行容器**:
-    以下命令将停止并移除旧的容器（如果存在），然后以后台模式启动一个新的容器，将主机的 3000 端口映射到容器的 8080 端口，并设置了自动重启策略。
+    为确保 WebRTC 连接能穿透 NAT，您需要向外界暴露 TCP 端口（用于 WebSocket 信令）和 UDP 端口范围（用于 P2P 数据传输）。
 
     ```bash
-    # 停止并移除同名旧容器（可选，用于更新）
+    # 停止并移除同名旧容器（可选，用于平滑更新）
     docker stop signaling-server
     docker rm signaling-server
 
-    # 启动新容器
+    # 运行新容器
     docker run -d \
-    --name signaling-server \
-    -p 3000:8080/tcp \
-    -p 40000-40100:40000-40100/udp \
-    -e SERVER_PUBLIC_IP="107.191.41.14" \
-    -e PORT=8080 \
-    --restart unless-stopped \
-    my-signaling-server:latest
+      --name signaling-server \
+      -p 8080:8080/tcp \
+      -p 40000-40100:40000-40100/udp \
+      -e PORT=8080 \
+      -e SERVER_PUBLIC_IP="YOUR_SERVER_PUBLIC_IP" \
+      --restart unless-stopped \
+      my-signaling-server:latest
     ```
 
-    现在，您的信令服务器就在 `ws://your-server-ip:3000` 上运行了。
+    **参数说明**:
+
+    - `-p 8080:8080/tcp`: 将主机的 8080 TCP 端口映射到容器的 8080 端口。
+    - `-p 40000-40100:40000-40100/udp`: **(关键)** 将主机的 UDP 端口范围映射到容器，用于 WebRTC 数据传输。请确保您的服务器防火墙已放行此 UDP 范围。
+    - `-e PORT=8080`: 告诉容器内的应用监听 8080 端口。您可以修改此值和 `-p` 参数来使用不同端口。
+    - `-e SERVER_PUBLIC_IP="YOUR_SERVER_PUBLIC_IP"`: **(重要)** 设置服务器的公网 IP 地址。这对于某些 NAT 穿透场景（如配置 TURN 服务器）至关重要。请替换 `"YOUR_SERVER_PUBLIC_IP"` 为您的实际 IP。
+    - `--restart unless-stopped`: 确保容器在服务器重启后能自动启动。
+
+    部署成功后，您的信令服务器地址为 `ws://YOUR_SERVER_PUBLIC_IP:8080`。
 
 ### 部署前端应用
 
@@ -136,14 +144,14 @@
   2.  在您的 Netlify/Vercel 账户中，从 Git 导入新项目。
   3.  设置构建命令为 `nuxt build`。
   4.  设置发布目录为 `.output/public`。
-  5.  **重要**: 设置环境变量 `NUXT_PUBLIC_SIGNALING_SERVER_URL` 为您部署的信令服务器地址（例如 `wss://your-ws-domain.com`）。
+  5.  **重要**: 设置环境变量 `NUXT_PUBLIC_SIGNALING_SERVER_URL` 为您部署的信令服务器地址（例如 `ws://your-server-ip:8080` 或使用 `wss://` 的安全地址）。
 
 - **静态托管**:
   ```bash
   pnpm generate
   ```
-  然后将 `.output/public` 目录下的内容部署到任何静态文件服务器。
+  然后将 `.output/public` 目录下的内容部署到任何静态文件服务器。同样，您需要在前端代码中配置好信令服务器的地址。
 
 ## 💡 许可证
 
-[MIT](./LICENSE) License © 2024 [Your Name]
+[MIT](./LICENSE) License © 2024 Lanseria
