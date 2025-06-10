@@ -8,7 +8,7 @@ export type NatTypeResult = 'Cone' | 'Symmetric' | 'UDP Blocked or Symmetric' | 
 function getStunMapping(): Promise<{ address: string, port: number } | null> {
   return new Promise((resolve, reject) => {
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: [{ urls: 'stun:74.125.250.129:19302' }],
     })
     const timeoutId = setTimeout(() => { pc.close(); reject(new Error('STUN mapping timeout')) }, 5000)
     pc.onicecandidate = (e) => {
