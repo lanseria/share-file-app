@@ -193,25 +193,30 @@ wss.on('connection', (ws, req) => {
 
         console.log(`[${currentClient.id}] Created PeerConnection for WebRTC test.`)
 
-        // 监听ICE candidate，并将其发送给客户端
-        peerConnection.onicecandidate.subscribe((candidate) => {
+        // --- 【修改点】 ---
+        // 使用属性赋值的方式来监听事件，这与浏览器API更一致
+        peerConnection.onicecandidate = (candidate) => {
           if (candidate) {
             console.log(`[${currentClient.id}] Forwarding server candidate to client.`)
+            // 注意：werift 的 candidate 对象可能需要调用 toJSON()
+            // 如果 candidate 本身就是JSON格式，则直接使用
+            const payload = typeof candidate.toJSON === 'function' ? candidate.toJSON() : candidate
             ws.send(JSON.stringify({
               type: 'webrtc_test_candidate',
-              payload: candidate.toJSON(),
+              payload,
             }))
           }
-        })
+        }
 
-        // 监听连接状态变化
-        peerConnection.oniceconnectionstatechange.subscribe((state) => {
+        peerConnection.oniceconnectionstatechange = () => {
+          // 注意：回调函数没有参数，状态需要从 peerConnection.iceConnectionState 获取
+          const state = peerConnection.iceConnectionState
           console.log(`[${currentClient.id}] PeerConnection state changed: ${state}`)
-          // 我们可以在这里获取统计信息，但更简单的是让客户端报告
           if (state === 'failed' || state === 'closed') {
             webrtcTests.delete(currentClient.id)
+            // 不需要手动关闭，状态变化时可能已经关闭
           }
-        })
+        }
 
         // 创建一个数据通道，以完成连接建立
         const dc = peerConnection.createDataChannel('test-channel')
@@ -251,13 +256,19 @@ wss.on('connection', (ws, req) => {
         const { candidate } = message.payload
         const peerConnection = webrtcTests.get(currentClient.id)
         if (peerConnection && candidate) {
-          console.log(`[${currentClient.id}] Received client candidate, adding to PeerConnection.`)
-          try {
-            peerConnection.addIceCandidate(candidate)
-          }
-          catch (error) {
-            console.error(`[${currentClient.id}] Error adding ICE candidate:`, error)
-          }
+          console.log(`[${currentClient.id}] Received client candidate, adding to PeerConnection.`);
+
+          // 将异步操作包装在立即执行的异步函数中
+          (async () => {
+            try {
+              // werift 的 addIceCandidate 可能需要一个 RTCIceCandidate 的实例
+              // 但通常也能接受一个普通的JSON对象
+              await peerConnection.addIceCandidate(candidate)
+            }
+            catch (error) {
+              console.error(`[${currentClient.id}] Error adding ICE candidate:`, error)
+            }
+          })()
         }
         break
       }

@@ -330,7 +330,7 @@ export function useRoom(roomId: string) {
 
     try {
       // 直接调用 store 的方法！
-      const natType = await wsStore.detectNatType()
+      const natType = await wsStore.testConnectivity()
       console.log('NAT detection process finished. Result:', natType)
       // 同样，不需要手动更新状态，等待服务器广播即可
     }
