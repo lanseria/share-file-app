@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { RTCPeerConnection, RTCSessionDescription } from 'werift' // <--- 核心变化
 import { WebSocket, WebSocketServer } from 'ws'
 
-const SERVER_PUBLIC_IP = env.SERVER_PUBLIC_IP || '127.0.0.1'
+const SERVER_PUBLIC_IP = env.SERVER_PUBLIC_IP
 console.log(`Server public IP for NAT tests is configured as: ${SERVER_PUBLIC_IP}`)
 const PORT = env.PORT || 8080
 const HEARTBEAT_INTERVAL = 30000 // 30秒
@@ -176,47 +176,57 @@ wss.on('connection', (ws, req) => {
           webrtcTests.get(currentClient.id)?.close()
         }
 
-        // **核心：创建服务器端的 RTCPeerConnection**
+        if (!SERVER_PUBLIC_IP) {
+          console.error(`[${currentClient.id}] FATAL: SERVER_PUBLIC_IP is not set. Cannot create WebRTC connection.`)
+          ws.send(JSON.stringify({ type: 'error', payload: 'Server configuration error: Missing public IP.' }))
+          return
+        }
         const peerConnection = new RTCPeerConnection({
-          // werift 允许我们强制使用特定的公网IP作为 ICE candidate
-          // 这对于部署在NAT后的服务器至关重要
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' }, // 也可以用STUN服务器来发现公网IP
-          ],
-          // 如果你的服务器有公网IP，但 werift 没能正确识别，可以用这个选项强制
-          iceCandidatePool: {
-            portMin: 40000,
-            portMax: 40100, // 可以像以前一样限制端口范围
-          },
+          icePortRange: [40000, 40100],
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
         })
         webrtcTests.set(currentClient.id, peerConnection)
 
-        console.log(`[${currentClient.id}] Created PeerConnection for WebRTC test.`)
+        console.log(`[${currentClient.id}] Created PeerConnection.`)
 
-        // --- 【修改点】 ---
-        // 使用属性赋值的方式来监听事件，这与浏览器API更一致
-        peerConnection.onicecandidate = (candidate) => {
-          if (candidate) {
-            console.log(`[${currentClient.id}] Forwarding server candidate to client.`)
-            // 注意：werift 的 candidate 对象可能需要调用 toJSON()
-            // 如果 candidate 本身就是JSON格式，则直接使用
-            const payload = typeof candidate.toJSON === 'function' ? candidate.toJSON() : candidate
+        // 监听ICE候选者事件 (使用文档确认的 onicecandidate 属性)
+        // 事件对象 event 包含一个 .candidate 属性
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log(`[${currentClient.id}] Found ICE candidate:`, event.candidate.toJSON())
+
             ws.send(JSON.stringify({
               type: 'webrtc_test_candidate',
-              payload,
+              payload: event.candidate.toJSON(),
             }))
+          }
+          else {
+            // candidate 为 null 表示该轮次的收集结束
+            console.log(`[${currentClient.id}] ICE gathering finished.`)
           }
         }
 
+        // 监听ICE连接状态变化 (使用 oniceconnectionstatechange 属性)
         peerConnection.oniceconnectionstatechange = () => {
-          // 注意：回调函数没有参数，状态需要从 peerConnection.iceConnectionState 获取
           const state = peerConnection.iceConnectionState
-          console.log(`[${currentClient.id}] PeerConnection state changed: ${state}`)
-          if (state === 'failed' || state === 'closed') {
+          console.log(`[${currentClient.id}] ICE Connection state changed: ${state}`)
+          if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+            peerConnection.close()
             webrtcTests.delete(currentClient.id)
-            // 不需要手动关闭，状态变化时可能已经关闭
           }
         }
+
+        // 监听信令状态，提供更多调试信息
+        peerConnection.onsignalingstatechange = () => {
+          console.log(`[${currentClient.id}] Signaling state changed: ${peerConnection.signalingState}`)
+        }
+
+        // --- 【实验性修改】 ---
+        // 1. 在做任何其他事情之前，先添加一个transceiver。
+        // 我们不发送任何媒体，所以方向是'recvonly'。
+        // 这就像是告诉PC：“准备好接收东西”，这应该会强制启动所有必要的子系统。
+        peerConnection.addTransceiver('video', { direction: 'recvonly' })
+        peerConnection.addTransceiver('audio', { direction: 'recvonly' })
 
         // 创建一个数据通道，以完成连接建立
         const dc = peerConnection.createDataChannel('test-channel')
@@ -228,11 +238,19 @@ wss.on('connection', (ws, req) => {
           console.log(`[${currentClient.id}] Message from client: ${msg}`)
         }
 
-        // 设置远程 offer，并创建 answer
+        // 3. 异步流程开始
         ;(async () => {
           try {
+            console.log(`[${currentClient.id}] Setting remote description...`)
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer.type, offer.sdp))
+
+            // 在调用 createAnswer 之前，我们可以检查一下ICE收集状态
+            // 但更好的方式是让 onicecandidate 日志来说话
+
+            console.log(`[${currentClient.id}] Creating answer...`)
             const answer = await peerConnection.createAnswer()
+
+            console.log(`[${currentClient.id}] Setting local description...`)
             await peerConnection.setLocalDescription(answer)
 
             console.log(`[${currentClient.id}] Sending answer to client.`)
@@ -242,7 +260,7 @@ wss.on('connection', (ws, req) => {
             }))
           }
           catch (error) {
-            console.error(`[${currentClient.id}] Error handling WebRTC offer:`, error)
+            console.error(`[${currentClient.id}] Error in WebRTC session setup:`, error)
             ws.send(JSON.stringify({ type: 'error', payload: `Server-side WebRTC error: ${error.message}` }))
             peerConnection.close()
             webrtcTests.delete(currentClient.id)
