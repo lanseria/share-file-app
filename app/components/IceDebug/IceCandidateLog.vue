@@ -34,7 +34,7 @@ function formatPriority(p?: number) {
             <th class="p-2 w-[90px]">
               Protocol
             </th>
-            <th class="p-2 w-[120px]">
+            <th class="p-2 w-[190px]">
               Address
             </th>
             <th class="p-2 w-[55px]">
