@@ -272,7 +272,8 @@ wss.on('connection', (ws, req) => {
       case 'report_stun_mapping': {
         const testInfo = natTests.get(currentClient.id)
         const reportedPort = message.payload?.port
-
+        console.log(`Received STUN mapping report from ${currentClient.id} for port ${reportedPort}`)
+        console.log('Test info:', testInfo)
         if (!testInfo || !reportedPort) {
           ws.send(JSON.stringify({ type: 'error', payload: 'NAT test not initiated or invalid report.' }))
           return
