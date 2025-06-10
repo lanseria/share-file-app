@@ -185,7 +185,8 @@ wss.on('connection', (ws, req) => {
           ],
           // 如果你的服务器有公网IP，但 werift 没能正确识别，可以用这个选项强制
           iceCandidatePool: {
-            // portMin: 40000, portMax: 40100 // 可以像以前一样限制端口范围
+            portMin: 40000,
+            portMax: 40100, // 可以像以前一样限制端口范围
           },
         })
         webrtcTests.set(currentClient.id, peerConnection)
