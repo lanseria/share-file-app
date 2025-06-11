@@ -13,7 +13,6 @@ export default defineNuxtConfig({
   devtools: {
     enabled: true,
   },
-
   app: {
     head: {
       viewport: 'width=device-width,initial-scale=1',
@@ -69,6 +68,11 @@ export default defineNuxtConfig({
       ignore: ['/room/*'],
     },
   },
+  vite: {
+    optimizeDeps: {
+      include: ['uuid'],
+    },
+  },
 
   eslint: {
     config: {
@@ -78,4 +82,5 @@ export default defineNuxtConfig({
       },
     },
   },
+
 })
