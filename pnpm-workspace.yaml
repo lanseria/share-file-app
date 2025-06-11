@@ -1,10 +1,11 @@
 packages: []
-catalog:
+
+catalog: null
+
 catalogs:
   backend:
     '@types/uuid': ^10.0.0
     uuid: ^11.1.0
-    werift: ^0.0.0
     ws: ^8.18.2
   build:
     '@nuxt/devtools': ^2.5.0
@@ -32,6 +33,7 @@ catalogs:
   icons:
     '@iconify-json/carbon': ^1.2.9
     '@iconify-json/twemoji': ^1.2.2
+
 onlyBuiltDependencies:
   - '@parcel/watcher'
   - esbuild
