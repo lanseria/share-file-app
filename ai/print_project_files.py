@@ -30,10 +30,32 @@ def get_project_structure(root_dir, file_regex, exclude_dirs=None, output_file=N
 
     for root, dirs, files in os.walk(root_dir, topdown=True):
         # --- 核心优化：原地修改dirs列表，阻止os.walk进入排除的目录 ---
-        # 这样可以极大地提高在大型项目（如包含node_modules）中的运行速度
-        dirs[:] = [d for d in dirs if d not in exclude_set]
+        
+        # 原始的 dirs[:] = [d for d in dirs if d not in exclude_set] 只能排除顶级目录
+        # 我们需要更强大的排除逻辑
+        
+        # 过滤掉需要排除的目录
+        dirs_to_remove = set()
+        for d in dirs:
+            # 检查绝对/相对路径是否以排除项开头
+            dir_path = os.path.join(root, d)
+            relative_dir_path = os.path.relpath(dir_path, root_dir).replace(os.sep, '/') # 标准化为 / 分隔符
+            
+            if d in exclude_set or relative_dir_path in exclude_set:
+                dirs_to_remove.add(d)
+        
+        dirs[:] = [d for d in dirs if d not in dirs_to_remove]
 
+        # 过滤掉需要排除的文件
+        files_to_process = []
         for filename in files:
+            file_path = os.path.join(root, filename)
+            relative_file_path = os.path.relpath(file_path, root_dir).replace(os.sep, '/')
+            
+            if filename not in exclude_set and relative_file_path not in exclude_set:
+                files_to_process.append(filename)
+
+        for filename in files_to_process: # 只遍历过滤后的文件
             if compiled_regex.search(filename):
                 file_path = os.path.join(root, filename)
                 relative_path = os.path.relpath(file_path, root_dir)
