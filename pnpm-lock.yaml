@@ -67,6 +67,9 @@ catalogs:
     '@iconify-json/carbon':
       specifier: ^1.2.9
       version: 1.2.9
+    '@iconify-json/simple-icons':
+      specifier: ^1.2.38
+      version: 1.2.38
     '@iconify-json/twemoji':
       specifier: ^1.2.2
       version: 1.2.2
@@ -88,6 +91,9 @@ importers:
       '@iconify-json/carbon':
         specifier: catalog:icons
         version: 1.2.9
+      '@iconify-json/simple-icons':
+        specifier: catalog:icons
+        version: 1.2.38
       '@iconify-json/twemoji':
         specifier: catalog:icons
         version: 1.2.2
@@ -622,6 +628,9 @@ packages:
 
   '@iconify-json/carbon@1.2.9':
     resolution: {integrity: sha512-RyeSAuFTzhs1GX4yrzVEKEbNQGt95p9zMR4S2F63vbThtNoUr5OKwaWbhO/GbHQCSgdbKuZv2ApAOsY2fLxLbQ==}
+
+  '@iconify-json/simple-icons@1.2.38':
+    resolution: {integrity: sha512-mvMeFQgVjoHanQE9Q7ihmriEXAorjLZW+crUgQspDjFpzWuQp2RZMTppl1MN6TQztMVTsNFgF6LDKsp+v1RYRg==}
 
   '@iconify-json/twemoji@1.2.2':
     resolution: {integrity: sha512-ckWEY5KhIQgdFd9VGvfhecTtYUx3ihXycwlZcEws87LxuvIThMHNBCblrQQ5afhbGMfg21dF+z9F+ODMRDYHMg==}
@@ -5466,6 +5475,10 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@iconify-json/carbon@1.2.9':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/simple-icons@1.2.38':
     dependencies:
       '@iconify/types': 2.0.0
 

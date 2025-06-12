@@ -1,4 +1,6 @@
 // app/composables/useRoom.ts
+import { v4 as uuidv4 } from 'uuid'
+
 export interface User {
   id: string
   name: string
@@ -27,9 +29,19 @@ export interface IceCandidateLogEntry {
   errorText?: string
 }
 
+export interface ChatMessage {
+  id: string
+  senderId: string
+  senderName: string
+  senderAvatar: string
+  text: string
+  timestamp: number
+}
+
 export function useRoom(roomId: string) {
   // 状态
   const messages = ref<MessageLog[]>([])
+  const chatMessages = ref<ChatMessage[]>([])
   const usersInRoom = ref<User[]>([])
   const myClientId = ref<string | null>(null)
   const myName = ref<string | null>(null)
@@ -207,9 +219,21 @@ export function useRoom(roomId: string) {
         break
 
       // 其他消息
-      case 'room_message':
-        // ...
+      case 'room_message': { // [!code --]
+        // ... (旧的实现可以删除)
+        const sender = usersInRoom.value.find(u => u.id === message.payload.senderId)
+        if (sender) {
+          chatMessages.value.push({
+            id: uuidv4(),
+            senderId: sender.id,
+            senderName: sender.name,
+            senderAvatar: sender.avatar,
+            text: message.payload.data,
+            timestamp: Date.now(),
+          })
+        }
         break
+      }
 
       case 'file_transfer_request': {
         const sender = usersInRoom.value.find(u => u.id === message.payload.senderId)
@@ -294,6 +318,25 @@ export function useRoom(roomId: string) {
     }
   }
 
+  function sendChatMessage(text: string) {
+    const trimmedText = text.trim()
+    if (trimmedText === '' || !myClientId.value || !myName.value || !myAvatar.value)
+      return
+
+    // 立即更新本地 UI
+    chatMessages.value.push({
+      id: uuidv4(),
+      senderId: myClientId.value,
+      senderName: myName.value,
+      senderAvatar: myAvatar.value,
+      text: trimmedText,
+      timestamp: Date.now(),
+    })
+
+    // 通过 WebSocket 发送
+    wsStore.sendMessage('broadcast_message', { data: trimmedText })
+  }
+
   function join() {
     wsStore.connect()
     // wsStore.onopen 之后, 我们在 handleWebSocketMessage 中通过 room_joined 确认加入成功
@@ -362,6 +405,7 @@ export function useRoom(roomId: string) {
   return {
     messages,
     usersInRoom: usersWithRtcStatus, // 对外暴露合并后的用户列表
+    chatMessages,
     myClientId,
     myName,
     myAvatar,
@@ -377,6 +421,7 @@ export function useRoom(roomId: string) {
     leave,
     // 透传一个通用的发送消息方法，用于如测试广播等
     sendMessage: wsStore.sendMessage,
+    sendChatMessage,
     transferStates: fileTransfer.transferStates,
     incomingRequests: fileTransfer.incomingRequests,
     selectFileForPeer,

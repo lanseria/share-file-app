@@ -8,12 +8,13 @@ const roomId = route.params.uuid
 const {
   messages,
   usersInRoom,
+  chatMessages,
   myClientId,
   myName,
   myAvatar,
   isConnected,
   join, // 使用 join 方法
-  sendMessage,
+  sendChatMessage,
   transferStates,
   incomingRequests,
   selectFileForPeer,
@@ -33,15 +34,6 @@ const {
 onMounted(() => {
   join()
 })
-
-// 用于测试广播消息
-const inputMessage = ref('')
-function sendBroadcastMessage() {
-  if (inputMessage.value.trim() !== '') {
-    sendMessage('broadcast_message', { data: inputMessage.value.trim() })
-    inputMessage.value = ''
-  }
-}
 </script>
 
 <template>
@@ -60,28 +52,6 @@ function sendBroadcastMessage() {
       将此页面的链接分享给其他人，让他们加入这个房间进行文件互传。
     </p>
 
-    <!-- 测试广播消息 (可以保留用于调试) -->
-    <div class="my-4">
-      <h3 class="text-lg font-semibold mb-2">
-        发送测试广播消息:
-      </h3>
-      <div class="flex gap-2">
-        <input
-          v-model="inputMessage"
-          type="text"
-          class="p-2 border rounded flex-grow dark:border-gray-600 dark:bg-gray-700"
-          placeholder="输入消息..."
-          @keyup.enter="sendBroadcastMessage"
-        >
-        <button
-          class="text-white px-4 py-2 rounded bg-blue-500 hover:bg-blue-600"
-          @click="sendBroadcastMessage"
-        >
-          发送
-        </button>
-      </div>
-    </div>
-
     <!-- 用户网格组件 -->
     <UserGrid
       :users="usersInRoom"
@@ -95,12 +65,24 @@ function sendBroadcastMessage() {
       @cancel-transfer="cancelTransfer"
       @detect-nat="manualDetectNat"
     />
+
+    <!-- !! 新增: ChatBox 组件 !! -->
+    <ChatBox
+      :messages="chatMessages"
+      :my-client-id="myClientId"
+      @send-message="sendChatMessage"
+    />
+
+    <!-- !! 新增: FAQ 帮助部分 !! -->
+    <FaqSection />
+
     <!-- !! 新增: ICE 调试组件 !! -->
     <IceDebug
       v-model:ice-servers="editableIceServers"
       v-model:ice-transport-policy="iceTransportPolicy"
       :ice-candidate-log="iceCandidateLog"
     />
+
     <!-- 消息日志组件 -->
     <MessageLog :messages="messages" />
   </div>
