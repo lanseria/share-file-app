@@ -117,7 +117,6 @@
     docker run -d \
       --name signaling-server \
       -p 3000:3000/tcp \
-      -e PORT=3000 \
       --restart unless-stopped \
       my-signaling-server:latest
     ```
