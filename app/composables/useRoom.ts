@@ -360,8 +360,11 @@ export function useRoom(roomId: string) {
   }
 
   function selectFileForPeer(peerId: string) {
+    // 关键改动：在这里主动发起或重试连接
+    manualInitiateConnection(peerId)
+
     peerToSendTo = peerId
-    open()
+    open() // 立即打开文件选择器，不等待连接成功
   }
 
   function acceptFileRequest(peerId: string) {

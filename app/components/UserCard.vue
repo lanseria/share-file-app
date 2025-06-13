@@ -18,37 +18,18 @@ const emit = defineEmits<{
   (e: 'cancel', userId: string): void // 新增
   (e: 'detect-nat'): void // 新增事件
 }>()
-// isClickable 计算属性现在只关心是否可以发起 *新* 的传输
+
 const isClickable = computed(() => {
-  if (props.transferState) {
-    return false
-  }
-  return !props.isSelf && (props.user.rtcState === 'connected' || props.user.rtcState === 'completed')
+  return !props.isSelf && !props.transferState
 })
 
 // handleClick 只处理发起新传输的点击
 function handleClick() {
-  if (isClickable.value) {
+  // 移除 else if 里的 console.log 逻辑，因为它不再适用
+  if (isClickable.value)
     emit('select', props.user.id)
-  }
-  else if (!props.isSelf && !props.transferState) {
-    // 只有在没有进行传输时，才提示无法连接
-    // eslint-disable-next-line no-console
-    console.log(`无法向 ${props.user.name} 发送文件，因为连接状态是: ${props.user.rtcState}`)
-  }
 }
-// 计算属性，判断状态指示器是否可以点击以重连
-const canReconnect = computed(() => {
-  const state = props.user.rtcState
-  // 未连接、或已断开/失败时，可以点击重连
-  return state === 'no-connection' || state === 'failed' || state === 'disconnected' || state === 'closed'
-})
 
-function handleStatusClick() {
-  if (canReconnect.value) {
-    emit('reconnect', props.user.id)
-  }
-}
 // 计算属性，用于生成状态提示和图标
 const rtcStatusInfo = computed(() => {
   const state = props.user.rtcState
@@ -155,10 +136,9 @@ function formatFileSize(bytes: number): string {
       <!-- WebRTC 连接状态 (适用于其他用户) -->
       <div
         v-else-if="!isSelf"
-        class="flex gap-1 cursor-pointer items-center justify-center"
-        :class="[rtcStatusInfo.color, { 'hover:opacity-75': canReconnect }]"
-        title="点击以连接/重连"
-        @click.stop="handleStatusClick"
+        class="flex gap-1 items-center justify-center"
+        :class="rtcStatusInfo.color"
+        :title="rtcStatusInfo.text"
       >
         <div :class="rtcStatusInfo.icon" />
         <span>{{ rtcStatusInfo.text }}</span>

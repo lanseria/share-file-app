@@ -20,7 +20,6 @@ const {
   selectFileForPeer,
   acceptFileRequest,
   rejectFileRequest,
-  manualInitiateConnection, // 确保这里解构出来了
   cancelTransfer,
   // 新增: 解构 ICE 调试相关的状态
   editableIceServers,
@@ -61,7 +60,6 @@ onMounted(() => {
       @select-user="selectFileForPeer"
       @accept-request="acceptFileRequest"
       @reject-request="rejectFileRequest"
-      @reconnect-user="manualInitiateConnection"
       @cancel-transfer="cancelTransfer"
       @detect-nat="manualDetectNat"
     />
