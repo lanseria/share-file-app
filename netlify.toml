@@ -4,7 +4,7 @@ command = "pnpm run generate"
 
 [build.environment]
 NODE_VERSION = "20"
-NUXT_PUBLIC_SIGNALING_SERVER_URL = "ws://111.231.0.12:3000"
+NUXT_PUBLIC_SIGNALING_SERVER_URL = "wss://file.rengshuai.com"
 
 [[redirects]]
 from = "/*"
