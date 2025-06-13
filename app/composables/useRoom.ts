@@ -66,16 +66,9 @@ export function useRoom(roomId: string) {
     iceCandidateLog.value = []
     // 2. 关闭所有现有连接
     rtc.closeAllPeerConnections()
-    // 3. 遍历现有用户，用新配置重新发起连接
-    usersInRoom.value.forEach((user) => {
-      if (user.id !== myClientId.value) {
-        // 使用一个小的延迟，确保旧连接完全关闭
-        setTimeout(() => manualInitiateConnection(user.id), 100)
-      }
-    })
   }, { deep: true }) // deep watch for changes inside the array
 
-  const fileTransfer = useFileTransfer()// 新增: 用于速度计算的状态
+  const fileTransfer = useFileTransfer()
 
   const speedCalculationState = reactive<Map<string, { lastTimestamp: number, lastBytes: number }>>(new Map())
 
@@ -97,12 +90,16 @@ export function useRoom(roomId: string) {
   // 处理来自 WebRTC 管理器的 DataChannel 事件
   rtc.onDataChannelEvents({
     onOpen: (peerId) => {
-      // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console
       console.log(`[Room] DataChannel with ${peerId} opened.`)
-      // 如果有待发送的文件，并且是发给这个 peer 的，现在可以发送了
+      // [关键改动 1]
+      // 检查是否有待发送的文件，并且是发给这个 peer 的。
+      // 这是文件开始传输的完美时机。
       const state = fileTransfer.transferStates.get(peerId)
-      if (state && state.isSender && state.state === 'requesting' && fileToSend && peerId === peerToSendTo) {
-        // 这是一个不好的耦合，更好的方式是在 'file_transfer_accepted' 消息中触发
+      if (state && state.isSender && fileToSend && peerId === peerToSendTo) {
+      // eslint-disable-next-line no-console
+        console.log(`[Room] DataChannel ready. Sending file: ${fileToSend.name} to ${peerId}`)
+        rtc.sendFile(peerId, fileToSend)
       }
     },
     onClose: (peerId) => { fileTransfer.failTransfer(peerId) },
@@ -219,8 +216,7 @@ export function useRoom(roomId: string) {
         break
 
       // 其他消息
-      case 'room_message': { // [!code --]
-        // ... (旧的实现可以删除)
+      case 'room_message': {
         const sender = usersInRoom.value.find(u => u.id === message.payload.senderId)
         if (sender) {
           chatMessages.value.push({
@@ -243,12 +239,15 @@ export function useRoom(roomId: string) {
       case 'file_transfer_accepted': {
         const peerId = message.payload.senderId
         // eslint-disable-next-line no-console
-        console.log(`[Room] ${peerId} accepted file transfer.`)
+        console.log(`[Room] ${peerId} accepted file transfer. Now initiating WebRTC connection...`)
+
+        // [关键改动 2]
+        // 只有在对方接受后，才开始建立连接。
         if (fileToSend && peerId === peerToSendTo) {
-          rtc.sendFile(peerId, fileToSend)
+          manualInitiateConnection(peerId)
         }
         else {
-          console.error('No file or matching peer to send to.')
+          console.error('Received acceptance, but no file or matching peer to send to.')
         }
         break
       }
@@ -274,22 +273,6 @@ export function useRoom(roomId: string) {
   // 将 WebSocket 的 onMessage 指向我们的处理器
   // 将 wsStore.onMessage(handleWebSocketMessage) 修改为：
   const unsubscribe = wsStore.onMessage(handleWebSocketMessage)
-
-  // 监听用户列表变化以自动建立 WebRTC 连接
-  // watch(
-  //   () => [...usersInRoom.value],
-  //   (newUsers, oldUsers) => {
-  //     if (!myClientId.value)
-  //       return
-  //     const newPeers = newUsers.filter(u => u.id !== myClientId.value && !oldUsers.find(ou => ou.id === u.id))
-  //     newPeers.forEach((peer) => {
-  //       if (myClientId.value! < peer.id) {
-  //         manualInitiateConnection(peer.id) // 使用 manualInitiateConnection 统一发起
-  //       }
-  //     })
-  //   },
-  //   { deep: true },
-  // )
 
   // 新增: 创建一个计算属性，将用户列表和 WebRTC 连接状态合并
   const usersWithRtcStatus = computed<UserWithStatus[]>(() => {
@@ -360,9 +343,6 @@ export function useRoom(roomId: string) {
   }
 
   function selectFileForPeer(peerId: string) {
-    // 关键改动：在这里主动发起或重试连接
-    manualInitiateConnection(peerId)
-
     peerToSendTo = peerId
     open() // 立即打开文件选择器，不等待连接成功
   }
@@ -430,7 +410,6 @@ export function useRoom(roomId: string) {
     selectFileForPeer,
     acceptFileRequest,
     rejectFileRequest,
-    manualInitiateConnection,
     cancelTransfer,
   }
 }
