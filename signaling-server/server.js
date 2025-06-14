@@ -1,14 +1,19 @@
 /* eslint-disable no-console */
 // signaling-server/server.js
+import { createServer } from 'node:http' // <-- 1. 引入 http 模块
 import { env } from 'node:process'
 import { v4 as uuidv4 } from 'uuid'
-// 引入 werift 和其他必要的模块
 import { WebSocket, WebSocketServer } from 'ws'
 
 const PORT = env.PORT || 8080
 const HEARTBEAT_INTERVAL = 30000 // 30秒
 
-const wss = new WebSocketServer({ port: PORT })
+// 2. 首先创建一个 HTTP server
+const server = createServer()
+
+// 3. 将 WebSocketServer 附加到 HTTP server 上
+// 注意，我们不再向 WebSocketServer 传递 'port'，而是传递 'server' 实例
+const wss = new WebSocketServer({ server })
 
 const ALLOWED_ORIGINS = [
   'http://localhost:3000', // Nuxt 开发环境
@@ -16,14 +21,52 @@ const ALLOWED_ORIGINS = [
   'https://share-file-nuxt.netlify.app', // 你的生产环境域名
 ]
 
+// 4. 为 HTTP server 添加请求监听器，用于展示一个简单的状态页面
+server.on('request', (req, res) => {
+  // WebSocket 的 'upgrade' 请求会被 `ws` 库自动处理，不会进入这里。
+  // 因此，这里只处理普通的 HTTP 请求。
+  if (req.url === '/' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Signaling Server Status</title>
+          <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; background-color: #f0f2f5; color: #333; padding: 2rem; }
+              .container { max-width: 700px; margin: 0 auto; background-color: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+              h1 { color: #1877f2; }
+              p { font-size: 1.1rem; }
+              code { background-color: #e9ebee; padding: 0.2em 0.4em; margin: 0; font-size: 95%; border-radius: 3px; }
+              ul { list-style-type: none; padding: 0; }
+              li { background-color: #f7f7f7; border: 1px solid #ddd; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 5px; }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <h1>✅ Signaling Server is Running</h1>
+              <p>This server is active and listening for WebSocket connections on port <code>${PORT}</code>.</p>
+              <h2>Allowed Origins for WebSocket Connections:</h2>
+              <ul>
+                  ${ALLOWED_ORIGINS.map(origin => `<li>${origin}</li>`).join('')}
+              </ul>
+          </div>
+      </body>
+      </html>
+    `)
+  }
+  else {
+    // 对于其他路径，可以返回 404
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('Not Found')
+  }
+})
+
 const rooms = new Map()
-const clientsByWs = new Map() // 重命名 clients 为 clientsByWs 以明确其键
-const clientsById = new Map() // 新增 Map，用于通过 ID 查找
+const clientsByWs = new Map()
+const clientsById = new Map()
 
-console.log(`Signaling server started on ws://localhost:${PORT}`)
-console.log('Allowed origins:', ALLOWED_ORIGINS.join(', '))
-
-// 预设的头像和名称，用于随机分配
+// 预设的头像和名称
 const PRESET_AVATARS = [
   'i-twemoji-grinning-face-with-big-eyes',
   'i-twemoji-beaming-face-with-smiling-eyes',
@@ -61,6 +104,7 @@ function generateRandomUserData() {
 }
 
 wss.on('connection', (ws, req) => {
+  // ... 你所有的 wss.on('connection', ...) 逻辑都保持完全不变 ...
   // --- 新增: 来源校验逻辑 ---
   const origin = req.headers.origin
   const clientIp = req.socket.remoteAddress // 获取客户端 IP
@@ -259,11 +303,7 @@ wss.on('connection', (ws, req) => {
   })
 
   ws.on('close', () => {
-    // 清理该客户端的 WebRTC 测试连接
     const closingClient = clientsByWs.get(ws)
-    if (closingClient) {
-      console.log(`Cleaned up WebRTC test for disconnected client ${closingClient.id}`)
-    }
     if (!closingClient)
       return
 
@@ -296,9 +336,9 @@ wss.on('connection', (ws, req) => {
   ws.on('error', (error) => {
     const errorClient = clientsByWs.get(ws)
     console.error(`WebSocket error for client ${errorClient?.id || 'unknown'}:`, error)
-    // 可以在这里尝试清理该客户端的连接和房间信息，类似 'close' 事件处理
   })
 })
+
 const interval = setInterval(() => {
   wss.clients.forEach((ws) => {
     const client = clientsByWs.get(ws)
@@ -307,17 +347,17 @@ const interval = setInterval(() => {
       return ws.terminate()
     }
 
-    client.isAlive = false // 假设它已经死了，等待 pong 来反证
+    client.isAlive = false
     ws.ping(() => {
       console.log(`Ping sent to ${client.id}`)
     })
   })
 }, HEARTBEAT_INTERVAL)
-// 确保服务器关闭时清理定时器
+
 wss.on('close', () => {
   clearInterval(interval)
 })
-// 辅助函数：向指定房间广播消息
+
 function broadcastToRoom(roomId, message, excludeClientId = null) {
   const room = rooms.get(roomId)
   if (room) {
@@ -329,9 +369,15 @@ function broadcastToRoom(roomId, message, excludeClientId = null) {
         }
         catch (e) {
           console.error(`Failed to send message to client ${client.id} in room ${roomId}:`, e)
-          // 可以在这里处理发送失败的客户端，比如将其从房间移除
         }
       }
     })
   }
 }
+
+// 5. 启动 HTTP server，WebSocket server 会随之启动
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`)
+  console.log(`- HTTP status page available at http://localhost:${PORT}`)
+  console.log(`- WebSocket endpoint is ws://localhost:${PORT}`)
+})
