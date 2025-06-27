@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // app/components/IceDebug/index.vue
 import IceCandidateLog from './IceCandidateLog.vue'
-import IceServerConfig from './IceServerConfig.vue'
+// import IceServerConfig from './IceServerConfig.vue'
 
 // 定义与子组件相同的 Props 和 Emits，用于数据透传
 defineProps<{
@@ -20,12 +20,12 @@ defineEmits<{
   <div class="my-8">
     <div class="p-4 border rounded dark:border-gray-700">
       <div class="flex flex-col md:flex-row">
-        <IceServerConfig
+        <!-- <IceServerConfig
           :model-value="iceServers"
           :ice-transport-policy="iceTransportPolicy"
           @update:model-value="$emit('update:iceServers', $event)"
           @update:ice-transport-policy="$emit('update:iceTransportPolicy', $event)"
-        />
+        /> -->
         <IceCandidateLog :log-entries="iceCandidateLog" />
       </div>
       <p class="text-xs text-yellow-600 mt-4 dark:text-yellow-400">
