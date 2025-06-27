@@ -26,20 +26,37 @@ server.on('request', (req, res) => {
   // WebSocket 的 'upgrade' 请求会被 `ws` 库自动处理，不会进入这里。
   // 因此，这里只处理普通的 HTTP 请求。
   if (req.url === '/' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <!DOCTYPE html>
       <html>
       <head>
           <title>Signaling Server Status</title>
           <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; background-color: #f0f2f5; color: #333; padding: 2rem; }
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; background-color: #f0f2f5; color: #333; padding: 2rem; margin: 0; }
               .container { max-width: 700px; margin: 0 auto; background-color: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
               h1 { color: #1877f2; }
               p { font-size: 1.1rem; }
               code { background-color: #e9ebee; padding: 0.2em 0.4em; margin: 0; font-size: 95%; border-radius: 3px; }
               ul { list-style-type: none; padding: 0; }
               li { background-color: #f7f7f7; border: 1px solid #ddd; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 5px; }
+              
+              /* --- 新增的页脚样式 --- */
+              footer {
+                  text-align: center;
+                  margin-top: 2rem;
+                  padding-top: 1rem;
+                  font-size: 0.9em;
+                  color: #888;
+              }
+              footer a {
+                  color: #888;
+                  text-decoration: none;
+              }
+              footer a:hover {
+                  text-decoration: underline;
+              }
+              /* --- 样式结束 --- */
           </style>
       </head>
       <body>
@@ -51,9 +68,18 @@ server.on('request', (req, res) => {
                   ${ALLOWED_ORIGINS.map(origin => `<li>${origin}</li>`).join('')}
               </ul>
           </div>
+
+          <!-- ==================== 新增的备案号页脚 ==================== -->
+          <footer>
+              <p>
+                  <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">浙ICP备2025180399号-1</a>
+              </p>
+          </footer>
+          <!-- ======================== 页脚结束 ======================== -->
+
       </body>
       </html>
-    `)
+    `);
   }
   else {
     // 对于其他路径，可以返回 404
