@@ -19,6 +19,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000', // Nuxt 开发环境
   'http://127.0.0.1:3000', // Nuxt 开发环境的另一种访问方式
   'https://share-file-nuxt.netlify.app', // 你的生产环境域名
+  'https://spacex-launch-timeline-nuxt.netlify.app',
 ]
 
 // 4. 为 HTTP server 添加请求监听器，用于展示一个简单的状态页面
