@@ -2,8 +2,8 @@
 const router = useRouter()
 
 function createRoom() {
-  // 生成4位短ID (36进制，包含数字和字母，约167万种组合)
-  const newRoomId = Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, '0')
+  // 生成4位纯数字ID (0000-9999)
+  const newRoomId = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
   router.push(`/room/${newRoomId}`)
 }
 </script>
