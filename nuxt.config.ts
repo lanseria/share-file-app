@@ -15,7 +15,6 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      viewport: 'width=device-width,initial-scale=1',
       link: [
         { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
         { rel: 'icon', type: 'image/svg+xml', href: '/nuxt.svg' },
@@ -35,16 +34,9 @@ export default defineNuxtConfig({
     classSuffix: '',
   },
   runtimeConfig: {
-    // 这些值只能在服务器端访问
-    // private: {},
-    // public 中的值可以在客户端和服务器端访问
     public: {
       signalingServerUrl: env.NUXT_PUBLIC_SIGNALING_SERVER_URL || 'ws://localhost:8080',
     },
-  },
-
-  future: {
-    compatibilityVersion: 4,
   },
 
   experimental: {
@@ -66,11 +58,6 @@ export default defineNuxtConfig({
       crawlLinks: false,
       routes: ['/'],
       ignore: ['/room/*'],
-    },
-  },
-  vite: {
-    optimizeDeps: {
-      include: ['uuid'],
     },
   },
 

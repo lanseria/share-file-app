@@ -34,7 +34,7 @@ watch(() => props.messages, async () => {
 </script>
 
 <template>
-  <div class="my-8">
+  <div class="my-4 md:my-8">
     <div class="p-4 border rounded-lg dark:border-gray-700">
       <h3 class="text-lg font-semibold mb-4 text-left">
         房间聊天

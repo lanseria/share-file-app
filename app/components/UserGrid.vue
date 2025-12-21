@@ -20,7 +20,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="mt-8">
+  <div class="mt-4 md:mt-8">
     <h2 class="text-xl mb-2">
       房间内的用户 ({{ users.length }}):
     </h2>

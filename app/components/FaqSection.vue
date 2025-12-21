@@ -4,7 +4,7 @@
 </script>
 
 <template>
-  <div class="my-8 text-left space-y-4">
+  <div class="my-4 text-left space-y-4 md:my-8">
     <!-- Section 1: NAT and Connection Issues -->
     <details class="group p-4 border rounded-lg dark:border-gray-700">
       <summary class="font-semibold cursor-pointer select-none group-open:mb-4">
@@ -14,7 +14,7 @@
           <span class="i-carbon-chevron-down ml-auto transition-transform group-open:rotate-180" />
         </div>
       </summary>
-      <div class="prose-sm text-gray-700 max-w-none prose dark:text-gray-300 dark:prose-invert">
+      <div class="text-gray-700 max-w-none prose prose-sm dark:text-gray-300 dark:prose-invert">
         <p>
           P2P 连接的成功率很大程度上取决于您和对方所处的网络环境，即 <strong>NAT (网络地址转换)</strong> 类型。您可以将 NAT 想象成您家庭或公司网络的“前台”，它决定了外部设备如何与您“通话”。
         </p>
@@ -55,7 +55,7 @@
           <span class="i-carbon-chevron-down ml-auto transition-transform group-open:rotate-180" />
         </div>
       </summary>
-      <div class="prose-sm text-gray-700 max-w-none prose dark:text-gray-300 dark:prose-invert">
+      <div class="text-gray-700 max-w-none prose prose-sm dark:text-gray-300 dark:prose-invert">
         <p>
           P2P 的魅力就在于其惊人的直连速度。要获得“隔空投送 (AirDrop)”般的体验，请尝试以下方法：
         </p>

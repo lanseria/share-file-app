@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { v4 as uuidv4 } from 'uuid'
-
 const router = useRouter()
 
 function createRoom() {
-  const newRoomId = uuidv4()
+  // 生成4位短ID (36进制，包含数字和字母，约167万种组合)
+  const newRoomId = Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, '0')
   router.push(`/room/${newRoomId}`)
 }
 </script>

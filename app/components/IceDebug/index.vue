@@ -17,7 +17,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="my-8">
+  <div class="my-4 md:my-8">
     <div class="p-4 border rounded dark:border-gray-700">
       <div class="flex flex-col md:flex-row">
         <!-- <IceServerConfig

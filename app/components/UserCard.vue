@@ -84,7 +84,7 @@ function formatFileSize(bytes: number): string {
   >
     <!-- 主要内容: 头像和名称 -->
     <div :class="user.avatar" class="text-5xl mb-2 h-16 w-16" />
-    <span class="font-semibold truncate" :title="user.name">{{ user.name }} <span v-if="isSelf" class="text-xs text-gray-500 dark:text-gray-400">(你)</span></span>
+    <span class="font-semibold max-w-[8rem] truncate md:max-w-[12rem]" :title="user.name">{{ user.name }} <span v-if="isSelf" class="text-xs text-gray-500 dark:text-gray-400">(你)</span></span>
 
     <!-- 状态显示区域 (使用 v-if / v-else-if / v-else 控制显示优先级) -->
     <div class="text-xs mt-2 text-center w-full">
@@ -166,7 +166,5 @@ function formatFileSize(bytes: number): string {
 </template>
 
 <style scoped>
-.user-card .truncate {
-  max-width: 120px;
-}
+/* 样式已通过 Utility Classes 处理 */
 </style>

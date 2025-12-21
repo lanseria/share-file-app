@@ -9,7 +9,7 @@ defineProps<Props>()
 </script>
 
 <template>
-  <div class="mt-8">
+  <div class="mt-4 md:mt-8">
     <h3 class="text-lg font-semibold mb-2">
       信令消息日志:
     </h3>

@@ -38,7 +38,7 @@ onMounted(() => {
 <template>
   <div class="mx-auto p-4 container">
     <!-- 头部信息 -->
-    <h1 class="text-2xl font-bold mb-1">
+    <h1 class="text-xl font-bold mb-1 md:text-2xl">
       房间号: {{ roomId }}
     </h1>
     <div v-if="isConnected && myClientId" class="text-sm text-gray-600 mb-4 dark:text-gray-400">
