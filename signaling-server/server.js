@@ -30,54 +30,338 @@ server.on('request', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <!DOCTYPE html>
-      <html>
+      <html lang="zh-CN">
       <head>
-          <title>Signaling Server Status</title>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>我的博客</title>
           <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; background-color: #f0f2f5; color: #333; padding: 2rem; margin: 0; }
-              .container { max-width: 700px; margin: 0 auto; background-color: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-              h1 { color: #1877f2; }
-              p { font-size: 1.1rem; }
-              code { background-color: #e9ebee; padding: 0.2em 0.4em; margin: 0; font-size: 95%; border-radius: 3px; }
-              ul { list-style-type: none; padding: 0; }
-              li { background-color: #f7f7f7; border: 1px solid #ddd; margin-bottom: 0.5rem; padding: 0.75rem; border-radius: 5px; }
-              
-              /* --- 新增的页脚样式 --- */
-              footer {
-                  text-align: center;
-                  margin-top: 2rem;
-                  padding-top: 1rem;
-                  font-size: 0.9em;
-                  color: #888;
+              * {
+                  margin: 0;
+                  padding: 0;
+                  box-sizing: border-box;
               }
-              footer a {
-                  color: #888;
+
+              body {
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  background-color: #fafafa;
+              }
+
+              /* 导航栏 */
+              .header {
+                  background: #fff;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                  position: sticky;
+                  top: 0;
+                  z-index: 100;
+              }
+
+              .nav {
+                  max-width: 800px;
+                  margin: 0 auto;
+                  padding: 1rem 1.5rem;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+              }
+
+              .logo {
+                  font-size: 1.25rem;
+                  font-weight: 600;
+                  color: #2563eb;
                   text-decoration: none;
               }
-              footer a:hover {
+
+              .nav-links {
+                  display: flex;
+                  gap: 1.5rem;
+              }
+
+              .nav-links a {
+                  color: #666;
+                  text-decoration: none;
+                  font-size: 0.875rem;
+                  transition: color 0.2s;
+              }
+
+              .nav-links a:hover {
+                  color: #2563eb;
+              }
+
+              /* 主容器 */
+              .container {
+                  max-width: 800px;
+                  margin: 0 auto;
+                  padding: 2rem 1.5rem;
+              }
+
+              /* 个人简介 */
+              .profile {
+                  background: #fff;
+                  border-radius: 12px;
+                  padding: 2rem;
+                  margin-bottom: 2rem;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+              }
+
+              .profile-header {
+                  display: flex;
+                  align-items: center;
+                  gap: 1.5rem;
+                  margin-bottom: 1.5rem;
+              }
+
+              .avatar {
+                  width: 80px;
+                  height: 80px;
+                  border-radius: 50%;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 2rem;
+                  color: #fff;
+              }
+
+              .profile-info h1 {
+                  font-size: 1.5rem;
+                  margin-bottom: 0.5rem;
+              }
+
+              .profile-info .bio {
+                  color: #666;
+                  font-size: 0.9rem;
+              }
+
+              .profile-tags {
+                  display: flex;
+                  gap: 0.5rem;
+                  flex-wrap: wrap;
+              }
+
+              .tag {
+                  background: #f3f4f6;
+                  color: #6b7280;
+                  padding: 0.25rem 0.75rem;
+                  border-radius: 9999px;
+                  font-size: 0.75rem;
+              }
+
+              /* 博客文章 */
+              .section-title {
+                  font-size: 1.25rem;
+                  font-weight: 600;
+                  margin-bottom: 1.5rem;
+                  padding-bottom: 0.5rem;
+                  border-bottom: 2px solid #e5e7eb;
+              }
+
+              .post {
+                  background: #fff;
+                  border-radius: 12px;
+                  padding: 1.5rem;
+                  margin-bottom: 1rem;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                  transition: transform 0.2s, box-shadow 0.2s;
+                  cursor: pointer;
+              }
+
+              .post:hover {
+                  transform: translateY(-2px);
+                  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+              }
+
+              .post-title {
+                  font-size: 1.125rem;
+                  font-weight: 600;
+                  color: #2563eb;
+                  margin-bottom: 0.5rem;
+                  text-decoration: none;
+                  display: block;
+              }
+
+              .post-excerpt {
+                  color: #666;
+                  font-size: 0.9rem;
+                  margin-bottom: 1rem;
+                  line-height: 1.7;
+              }
+
+              .post-meta {
+                  display: flex;
+                  gap: 1rem;
+                  font-size: 0.8rem;
+                  color: #999;
+              }
+
+              /* 服务器状态 */
+              .status {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: #fff;
+                  border-radius: 12px;
+                  padding: 2rem;
+                  margin-bottom: 2rem;
+                  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+              }
+
+              .status-title {
+                  font-size: 1.25rem;
+                  font-weight: 600;
+                  margin-bottom: 1rem;
+              }
+
+              .status-item {
+                  margin-bottom: 0.75rem;
+                  display: flex;
+                  align-items: center;
+                  gap: 0.5rem;
+              }
+
+              .status-dot {
+                  width: 8px;
+                  height: 8px;
+                  background: #22c55e;
+                  border-radius: 50%;
+                  animation: pulse 2s infinite;
+              }
+
+              @keyframes pulse {
+                  0%, 100% { opacity: 1; }
+                  50% { opacity: 0.5; }
+              }
+
+              .status-text {
+                  font-size: 0.9rem;
+              }
+
+              /* 页脚 */
+              .footer {
+                  text-align: center;
+                  padding: 2rem;
+                  color: #999;
+                  font-size: 0.875rem;
+              }
+
+              .footer a {
+                  color: #999;
+                  text-decoration: none;
+              }
+
+              .footer a:hover {
                   text-decoration: underline;
               }
-              /* --- 样式结束 --- */
+
+              /* 响应式 */
+              @media (max-width: 640px) {
+                  .profile-header {
+                      flex-direction: column;
+                      text-align: center;
+                  }
+
+                  .profile-tags {
+                      justify-content: center;
+                  }
+              }
           </style>
       </head>
       <body>
-          <div class="container">
-              <h1>✅ Signaling Server is Running</h1>
-              <p>This server is active and listening for WebSocket connections on port <code>${PORT}</code>.</p>
-              <h2>Allowed Origins for WebSocket Connections:</h2>
-              <ul>
-                  ${ALLOWED_ORIGINS.map(origin => `<li>${origin}</li>`).join('')}
-              </ul>
-          </div>
+          <!-- 导航栏 -->
+          <header class="header">
+              <nav class="nav">
+                  <a href="/" class="logo">🚀 ShareFile</a>
+                  <div class="nav-links">
+                      <a href="#">首页</a>
+                      <a href="#">文章</a>
+                      <a href="#">关于</a>
+                  </div>
+              </nav>
+          </header>
 
-          <!-- ==================== 新增的备案号页脚 ==================== -->
-          <footer>
+          <!-- 主内容 -->
+          <main class="container">
+              <!-- 服务器状态 -->
+              <div class="status">
+                  <h2 class="status-title">🟢 服务状态</h2>
+                  <div class="status-item">
+                      <span class="status-dot"></span>
+                      <span class="status-text">信令服务器运行中 - 端口: ${PORT}</span>
+                  </div>
+                  <div class="status-item">
+                      <span class="status-text">WebSocket 端点: ws://localhost:${PORT}</span>
+                  </div>
+              </div>
+
+              <!-- 个人简介 -->
+              <div class="profile">
+                  <div class="profile-header">
+                      <div class="avatar">👨‍💻</div>
+                      <div class="profile-info">
+                          <h1>你好，我是开发者</h1>
+                          <p class="bio">热爱开源，专注于 WebRTC 和实时通信技术。这个项目是一个基于 P2P 的文件分享应用。</p>
+                      </div>
+                  </div>
+                  <div class="profile-tags">
+                      <span class="tag">Vue.js</span>
+                      <span class="tag">WebRTC</span>
+                      <span class="tag">Node.js</span>
+                      <span class="tag">TypeScript</span>
+                      <span class="tag">开源</span>
+                  </div>
+              </div>
+
+              <!-- 博客文章列表 -->
+              <h2 class="section-title">📝 最新文章</h2>
+
+              <article class="post">
+                  <a href="#" class="post-title">WebRTC P2P 文件传输实现指南</a>
+                  <p class="post-excerpt">详细介绍如何使用 WebRTC 的 DataChannel 实现点对点的文件传输，包括连接建立、分块传输、进度监控等关键技术点。</p>
+                  <div class="post-meta">
+                      <span>📅 2025-01-22</span>
+                      <span>⏱️ 8 分钟阅读</span>
+                      <span>🏷️ WebRTC</span>
+                  </div>
+              </article>
+
+              <article class="post">
+                  <a href="#" class="post-title">构建实时文件分享应用：架构设计与实践</a>
+                  <p class="post-excerpt">分享这个 P2P 文件分享应用的完整架构设计思路，包括信令服务器设计、前端状态管理、错误处理等最佳实践。</p>
+                  <div class="post-meta">
+                      <span>📅 2025-01-20</span>
+                      <span>⏱️ 10 分钟阅读</span>
+                      <span>🏷️ 架构设计</span>
+                  </div>
+              </article>
+
+              <article class="post">
+                  <a href="#" class="post-title">Nuxt 4 Composition API 最佳实践</a>
+                  <p class="post-excerpt">总结在项目中使用 Nuxt 4 和 Vue 3 Composition API 的经验，包括组合式函数设计、状态管理、性能优化等方面。</p>
+                  <div class="post-meta">
+                      <span>📅 2025-01-18</span>
+                      <span>⏱️ 6 分钟阅读</span>
+                      <span>🏷️ Vue.js</span>
+                  </div>
+              </article>
+
+              <article class="post">
+                  <a href="#" class="post-title">WebSocket 信令服务器从零搭建</a>
+                  <p class="post-excerpt">手把手教你搭建一个高性能的 WebSocket 信令服务器，包含连接管理、消息转发、心跳检测等核心功能。</p>
+                  <div class="post-meta">
+                      <span>📅 2025-01-15</span>
+                      <span>⏱️ 12 分钟阅读</span>
+                      <span>🏷️ Node.js</span>
+                  </div>
+              </article>
+          </main>
+
+          <!-- 页脚 -->
+          <footer class="footer">
               <p>
                   <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">浙ICP备2025180399号-1</a>
               </p>
+              <p style="margin-top: 0.5rem;">© 2025 ShareFile. All rights reserved.</p>
           </footer>
-          <!-- ======================== 页脚结束 ======================== -->
-
       </body>
       </html>
     `);
