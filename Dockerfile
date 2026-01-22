@@ -1,5 +1,5 @@
 # ---- Stage 1: Build ----
-FROM docker.m.daocloud.io/node:20-alpine AS builder
+FROM docker.m.daocloud.io/node:24.13.0-alpine3.23 AS builder
 
 WORKDIR /app
 COPY ./signaling-server/package.json ./
