@@ -34,7 +34,7 @@ server.on('request', (req, res) => {
       <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>我的博客</title>
+          <title>个人博客网站</title>
           <style>
               * {
                   margin: 0;
