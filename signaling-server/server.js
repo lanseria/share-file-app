@@ -270,7 +270,7 @@ server.on('request', (req, res) => {
           <!-- 导航栏 -->
           <header class="header">
               <nav class="nav">
-                  <a href="/" class="logo">🚀 ShareFile</a>
+                  <a href="/" class="logo">🚀 个人博客网站</a>
                   <div class="nav-links">
                       <a href="#">首页</a>
                       <a href="#">文章</a>
